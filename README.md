@@ -93,18 +93,20 @@ To help uncomplicate this process, however, the Makefile has been created so tha
 
 As a helper to the user, a script called header2Miml.py is used to parse the header file of a user module and create the corresponding MIML file. To use this script, however, each function prototype in the header file should have in an inline comment beside it a special miml directive detailing its role in the form "[miml:<role>]" where role can be init, final, receiver or sender . Here is an example of a header file with the special miml directive in the comments:
 
+```C
 extern void init_diskLogger(void); // [miml:init]
 extern void finalize_diskLogger(void); // [miml:final]
 extern void getMessage_diskLogger(char *buf); // [miml:receiver]
 extern void sendMessage_diskLogger(char *buf); // [miml:sender]
+```
 
 The user can run either ./header2Miml <user module header file> <user module miml file> to take in the header and output the miml file. An example would be:
 
-./header2Miml.py module_diskLogger.h module_diskLogger.miml
+    ./header2Miml.py module_diskLogger.h module_diskLogger.miml
 
 As a short cut ./header2Miml <user module filename without extension>. An example would be:
 
-./header2Miml.py module_diskLogger
+    ./header2Miml.py module_diskLogger
 
 Otherwise, MIML files can be created manually (see separate documentation regarding MIML in documentation folder).
 
