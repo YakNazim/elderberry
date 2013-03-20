@@ -22,13 +22,13 @@ The framework itself is simply a conduit for passing data between code modules. 
 
 ## 2.1 API
 
-User hardware modules connect to the framework by passing in their file descriptors to the fcf_add_fd(...) API function in their initialize function. These file descriptors are essential for telling the framework that they have data to pass to other user modules. If the need arises that a module needs to disconnect from the framework, the fcf_remove_fd(...) API function fulfills this purpose. 
+User hardware modules connect to the framework by passing in their file descriptors to the `fcf_add_fd(...)` API function in their initialize function. These file descriptors are essential for telling the framework that they have data to pass to other user modules. If the need arises that a module needs to disconnect from the framework, the `fcf_remove_fd(...)` API function fulfills this purpose. 
 
-In rare cases where a user module must end program execution, a third API function, fcf_stop_main_loop(...)  is used. This function will stop the framework from iterating over another polling loop and will consequently begin the process of methodically shutting down the application. It is important to note that any user module has the ability to call fcf_stop_main_loop(...).
+In rare cases where a user module must end program execution, a third API function, `fcf_stop_main_loop(...)` is used. This function will stop the framework from iterating over another polling loop and will consequently begin the process of methodically shutting down the application. It is important to note that any user module has the ability to call `fcf_stop_main_loop(...)`.
 
 ## 2.2 Polling
 
-Once the user modules have registered themselves with the framework using the fcf_add_fd(...) API function, the "main loop," or "polling loop," of the framework checks to see which file descriptors are active. When an active file descriptor is found, the polling callback function located in the respective user module is called.
+Once the user modules have registered themselves with the framework using the `fcf_add_fd(...)` API function, the "main loop," or "polling loop," of the framework checks to see which file descriptors are active. When an active file descriptor is found, the polling callback function located in the respective user module is called.
 
 ## 2.3 MIML and Sender/Receiver Relationships
 
@@ -57,11 +57,11 @@ There are a few conventions that will make user modules work more seamlessly wit
 
 * Tokens: Every module should have a unique identifier that is somewhat descriptive of what it is, but keeps its functions from having namespace collisions. Possible examples include "mouse1" or "diskLogger."
 
-* Initialize functions: Every user module should have an initialization function. Whether it's setting up dynamically allocated data, referencing a secondary API or library, or simply doing nothing, MIML requires that every user modules have an initialize function. Since its called from auto-generated code, the initialize function should not take any arguments. A recommended naming scheme is:  void init_<module token>(void);
+* Initialize functions: Every user module should have an initialization function. Whether it's setting up dynamically allocated data, referencing a secondary API or library, or simply doing nothing, MIML requires that every user modules have an initialize function. Since its called from auto-generated code, the initialize function should not take any arguments. A recommended naming scheme is:  `void init_<module token>(void);`
 
-* Finalize functions: Every modules should have a finalize function. This function is used to execute code necessary to shut down the user module before the application terminates, such as deallocating any dynamic memory. Since its called from auto-generated code, the finalize function should not take any arguments. A recommended naming scheme is:  void finalize_<module token>(void);
+* Finalize functions: Every modules should have a finalize function. This function is used to execute code necessary to shut down the user module before the application terminates, such as deallocating any dynamic memory. Since its called from auto-generated code, the finalize function should not take any arguments. A recommended naming scheme is:  `void finalize_<module token>(void);`
 
-* Data-passing functions: Receiver functions should at least contain the token of the user module it's being defined in. A recommended naming scheme is: void get<function name>_<module token>(args); An example might be "void getMessage_diskLogger(char *buf);" Sender functions, which are references to the respective auto-generated intermodular data handler are best defined as: void send<function name>_<module token>(args); An example might be "void sendMessage_diskLogger(char *buf);" User modules may have multiple sender and receiver functions.
+* Data-passing functions: Receiver functions should at least contain the token of the user module it's being defined in. A recommended naming scheme is: `void get<function name>_<module token>(args);` An example might be `void getMessage_diskLogger(char *buf);` Sender functions, which are references to the respective auto-generated intermodular data handler are best defined as: `void send<function name>_<module token>(args);` An example might be `void sendMessage_diskLogger(char *buf);` User modules may have multiple sender and receiver functions.
 
 * Filenames: A recommended naming scheme for the user modules is module_<module token>.c and .h. An example might be "module_diskLogger.c" and "module_diskLogger.h".
 
