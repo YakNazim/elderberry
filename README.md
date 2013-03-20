@@ -8,17 +8,12 @@ The Flight Control Framework, or FCF, is a bit of a misnomer in and of itself. W
 
 ## 1.1 Framework Repository Structure
 
-'/' - All the files that comprise the framework, code generator, modules, Makefile, miml files, helper utilities and other configuration files and scripts are all in the root of the framework repository. 
-
-'/documentation' - The documentation for the code generation and MIML specification.
-
-'/examples' - Example files, demos, miscellaneous code and a reworked copy of the AV3 code that removes GLib and uses the modular framework paradigm. 
-
-'/html' - The Doxygen user documentation folder.
-
-'/profiler' - External profiler that feeds input through sockets from a remote python script.
-
-'/templates' - Basic templates for creating modules that connect to libusb or sockets. Read the in-file instructions for how to properly configure and save to a new module file.
+ - `/` - All the files that comprise the framework, code generator, modules, Makefile, miml files, helper utilities and other configuration files and scripts are all in the root of the framework repository. 
+ - `/documentation` - The documentation for the code generation and MIML specification.
+ - `/examples` - Example files, demos, miscellaneous code and a reworked copy of the AV3 code that removes GLib and uses the modular framework paradigm.
+ - `/html` - The Doxygen user documentation folder.
+ - `/profiler` - External profiler that feeds input through sockets from a remote python script.
+ - `/templates` - Basic templates for creating modules that connect to libusb or sockets. Read the in-file instructions for how to properly configure and save to a new module file.
 
 
 # 2 The Framework
