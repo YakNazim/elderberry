@@ -57,7 +57,7 @@ static void virtacc_cb (struct pollfd *pfd) {
 
 static int init_virtdev_device(const char *devname, int port, pollfd_callback cb) {
 	printf ("probing %s: (waiting for connection localhost:%d)\n", devname, port);
-	int fd = getsocket(port);
+	int fd = getsocket("127.0.0.1", "35000", port);
 	if (fd >= 0) {
 		int rc = fcf_add_fd(fd, POLLIN, cb);
 		if (rc >= 0) {

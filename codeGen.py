@@ -127,7 +127,7 @@ class Parser:
 
     def __init__(self, filename):
         self.errors = ErrorLogger()
-        # declar modes_flags_files, the call to argument_check will set run by arg flags
+        # declare modes_flags_files, the call to argument_check will set run by arg flags
         modes_flags_files = {'code': {'run': False, 'file': None}, 'make': {'run': False, 'file': None}, 'header': {'run': False, 'file': None}}
 
         # Check command line arguments used to invoke codeGen, if good check file.
@@ -152,8 +152,11 @@ class Parser:
         # get allowed types configuration data
         allowed_types = self.config['allowed_types']
         del(self.config['allowed_types'])
+        # get other directories to search
+        include_dirs = self.config['include_dirs']
+        del(self.config['include_dirs'])
         # Setup a ParserHandlers obj
-        self.handler_functions = ParseHandlers(self, allowed_types)
+        self.handler_functions = ParseHandlers(self, allowed_types, include_dirs)
 
         # Make paths lists for easier parsing
         for handler in self.config.keys():
@@ -175,27 +178,27 @@ class Parser:
             self.crawl(self.master)
         # Output
         # Let's you see stuff, uncomment when writing MIML extensions and trying to
-	#     figure out where to insert content in OutputGenerator.
-        # self.output.display() 
+        # figure out where to insert content in OutputGenerator.
+        # self.output.display()
         # Make files!!!
-        self.output.write_out() 
+        self.output.write_out()
 
     def crawl(self, data):
         # Recursive function "Weee!"
         # Different structure walking for dict/list/scalar
         # path works as stack of directories (push/pop)
-        if type(data).__name__=='dict':
+        if type(data).__name__ == 'dict':
             for key in data.keys():
                 self.path.append(key)
                 if self.matchpath(data[key]) == False:
                     self.crawl (data[key])
                 self.path.pop()
-        elif type(data).__name__=='list':
+        elif type(data).__name__ == 'list':
             for element in data:
                 self.path.append(element)
                 if self.matchpath(element) == False:
-                    self.crawl (element) 
-                self.path.pop()           
+                    self.crawl (element)
+                self.path.pop()
         else:
             self.matchpath(data)
 
@@ -213,7 +216,7 @@ class Parser:
 	    # print ("Expand This:")
 	    # print (yaml.dump(self.master))
         elif self.state == ParserStates.Expand:
-            # Make buffer contents master. 
+            # Make buffer contents master.
             self.master = self.buffer
             self.buffer = {}
 	        # Necessary to check unhandled from Expand or we will miss problems during buffer transfer
@@ -247,7 +250,7 @@ class Parser:
     def matchpath(self, data):
         # This method returns True if a handler decides no other parsing is required for
         # the data it handles, for the mode it is in.
-        # 
+        #
         # Goal: Flexible not complicated!!! We could support all kinds of crazy, but we won't!
         #    '*' means single position wildcard, not arbitrary number of elements.
         #    handler paths that do not begin with '/' should not contain any '/'.
@@ -257,7 +260,7 @@ class Parser:
         # 1 - len(a) == len(b) and ( a[x] == b[x] or b[x] == '*' )
         # 2 - len(a) != len(b) && len(b) == 1
         #
-        # Someone may put '*' for path, not sure if I want to make that illegal.        
+        # Someone may put '*' for path, not sure if I want to make that illegal.
 
         return_value = False
         for key in self.config.keys():
@@ -270,8 +273,8 @@ class Parser:
                         match = False
                 if match == True:
                     return_value = return_value | self.call_handler_function(key, data)
-            if len(self.config[key]['path']) == 1 and self.config[key]['path'][0] == self.path[-1]:  
-                # only len 1 for path and we matched last element. Note: /foo is length 2 path (invisible root)     
+            if len(self.config[key]['path']) == 1 and self.config[key]['path'][0] == self.path[-1]:
+                # only len 1 for path and we matched last element. Note: /foo is length 2 path (invisible root)
                 return_value = return_value | self.call_handler_function(key, data)
         return return_value
 
@@ -282,14 +285,14 @@ class Parser:
             self.errors.new_error("Handler type mismatch. " + key + " expects " + self.config[key]['type'] + " received " + type(data).__name__)
             return False
         else:
-            # call hander function 'key', in ParserHandlers, passing data 
+            # call hander function 'key', in ParserHandlers, passing data
             return getattr(self.handler_functions, key)(data)
 
     def argument_check(self, modes_flags_files):
         # checks command line arguments, configures modes based on flags.
         if len(sys.argv) > 3 or len(sys.argv) < 2:
             self.errors.new_error("Illegal number of arguments! Expected 1 or 2, received: "
-            + str(len(sys.argv) -1))
+            + str(len(sys.argv) - 1))
             return False
         self.miml_file = sys.argv[len(sys.argv) - 1]
         mode_flags = "-cmh" if len(sys.argv) == 2 else sys.argv[1]
@@ -310,10 +313,13 @@ class Parser:
 
 class ParseHandlers:
 
-    def __init__(self, parser, allowed_types):
+    def __init__(self, parser, allowed_types, include_dirs):
         self.parser = parser
         # to support validate_params
         self.allowed_types = allowed_types
+
+        self.include_dirs = include_dirs
+
         # objects for single line make file
         self.objects = []
 
@@ -339,12 +345,18 @@ class ParseHandlers:
             del(p.unhandled['sources'])
             p.buffer['modules'] = {}
             p.buffer['source_order'] = data
-            for source in data:             
-                if (e.check_file(source[1])):
-                    try:
-                        p.buffer['modules'][source[0]] = yaml.load(open(source[1], 'r'))
-                    except Exception as e:
-                        e.new_error("YAML parsing error: " + str(e))
+            for source in data:
+                foundfile = False  # This is kinda ugly, sorry
+                for pathname in self.include_dirs:
+                    filename = path.join(pathname, source[1])
+                    if path.exists(filename):
+                        foundfile = True
+                        try:
+                            p.buffer['modules'][source[0]] = yaml.load(open(filename, 'r'))
+                        except Exception as e:
+                            e.new_error("YAML parsing error: " + str(e))
+                if not foundfile:
+                    e.check_file(source[1])
             return True
         elif p.state == ParserStates.Parse:
             module_miml = []
@@ -352,7 +364,7 @@ class ParseHandlers:
                 module_miml.append(source[1])
             o.append("make", 10, o.mode_flags_files['code']['file'] + " " + o.mode_flags_files['header']['file'] + ": " + p.miml_file + " " + ' '.join(module_miml))
             o.append("make", 10, "\t./codeGen.py -ch " + p.miml_file)
-        return True # Nothing responds to data under here, left in so includes/final can figure out what order to stage data.
+        return True  # Nothing responds to data under here, left in so includes/final can figure out what order to stage data.
 
     def parse_messages(self, data):
         p = self.parser
@@ -447,7 +459,7 @@ class ParseHandlers:
         p = self.parser
         e = p.errors
         if p.state == ParserStates.Validate:
-            if not re.match(r"\w+\.o", data):
+            if not re.match(r"(/|\w)+\.o", data):
                 e.new_error("Illegal object file format: " + data + " in " + '/'.join(p.path))
         elif p.state == ParserStates.Parse:
             self.objects.append(data)
@@ -481,10 +493,10 @@ class ParseHandlers:
             o.append("code", 10, "}")
             o.append("code", 15, "void fcf_finalize() {")
             while len(finals) > 0:
-                o.append("code", 15, "    " + finals.pop())  
-            o.append("code", 15, "}")                 
+                o.append("code", 15, "    " + finals.pop())
+            o.append("code", 15, "}")
         return True
-    
+
     def validate_finals(self, data):
         # validates a modules finalize functions, output is generated via the module handler.
         p = self.parser
@@ -515,6 +527,6 @@ class ParseHandlers:
                 if not datatype in self.allowed_types:
                     e.new_error("Illegal parameter type: " + str(param[1]) + " in " + '/'.join(p.path))
         return True
-            
-parser = Parser('./cg.conf')
+
+parser = Parser('cg.conf')
 parser.parse()
