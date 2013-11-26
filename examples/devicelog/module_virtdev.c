@@ -8,8 +8,8 @@
 #include <string.h>
 
 #include "module_virtdev.h"
-#include "utils_sockets.h"
-#include "fcfutils.h"
+#include "../../utils_sockets.h"
+#include "../../fcfutils.h"
 
 static unsigned char buffer[1000];
 static int fd_gyr = -1;

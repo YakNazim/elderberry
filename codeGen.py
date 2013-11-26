@@ -322,7 +322,7 @@ class ParseHandlers:
         # Called after Parsing phase, allows handlers to stage data and then commit to OutputGenerator after parse stage.
         # or allows single time setup data, like fcfutils.h include, or carriage returns for pretty output.
         o = self.parser.output
-        o.append("code", 1, "#include \"fcfutils.h\"")
+        o.append("code", 1, "#include \"../../fcfutils.h\"") #TODO: FIX hardcoded path for fcfutils
         o.append("code", 6, "\n")
         o.append("code", 11, "\n")
         o.append("code", 16, "\n")
