@@ -152,11 +152,15 @@ class Parser:
         # get allowed types configuration data
         allowed_types = self.config['allowed_types']
         del(self.config['allowed_types'])
-        # get other directories to search
-        include_dirs = self.config['include_dirs']
-        del(self.config['include_dirs'])
+
+        # Other directories to search
+        include_dirs = self.config.pop('include_dirs', '')
+
+        # Frameworkinclude_dirs location
+        framework_dir = self.config.pop('framework_dir', '')
+
         # Setup a ParserHandlers obj
-        self.handler_functions = ParseHandlers(self, allowed_types, include_dirs)
+        self.handler_functions = ParseHandlers(self, allowed_types, include_dirs, framework_dir)
 
         # Make paths lists for easier parsing
         for handler in self.config.keys():
@@ -313,12 +317,13 @@ class Parser:
 
 class ParseHandlers:
 
-    def __init__(self, parser, allowed_types, include_dirs):
+    def __init__(self, parser, allowed_types, include_dirs, framework_dir):
         self.parser = parser
         # to support validate_params
         self.allowed_types = allowed_types
 
         self.include_dirs = include_dirs
+        self.framework_dir = framework_dir
 
         # objects for single line make file
         self.objects = []
@@ -328,7 +333,7 @@ class ParseHandlers:
         # Called after Parsing phase, allows handlers to stage data and then commit to OutputGenerator after parse stage.
         # or allows single time setup data, like fcfutils.h include, or carriage returns for pretty output.
         o = self.parser.output
-        o.append("code", 1, "#include \"../../fcfutils.h\"") #TODO: FIX hardcoded path for fcfutils
+        o.append("code", 1, "#include \""+self.framework_dir+"/fcfutils.h\"") #TODO: FIX hardcoded path for fcfutils
         o.append("code", 6, "\n")
         o.append("code", 11, "\n")
         o.append("code", 16, "\n")
