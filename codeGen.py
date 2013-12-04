@@ -1,18 +1,19 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 #
-# codeGen.py was written by Ron Astin (rastin71 - github) 
+# codeGen.py was written by Ron Astin (rastin71 - github)
 # 03/16/13 PSU Senior Capstone project (Team Elderberry).
 # Sponsor client: Portland State Aerospace Society (PSAS) http://psas.pdx.edu/
 #
 # Team Elderberry:
-#	Ron Astin
-#	Chris Glasser
-#	Jordan Hewitt
-#	Mike Hooper
-#	Josef Mihalits
-#	Clark Wachsmuth
+# 	Ron Astin
+# 	Chris Glasser
+# 	Jordan Hewitt
+# 	Mike Hooper
+# 	Josef Mihalits
+# 	Clark Wachsmuth
 
 import sys
+import argparse
 import re
 import yaml
 import copy
@@ -28,7 +29,7 @@ class ParserStates:
     # Parsing is where the actual parsing work happens, where handler functions generate output.
     # Actual output writting happens when all these phases are complete and is not part of "parsing".
     # There is a 4th stage (not really a stage), purge. In which a ParserHandlers function is called to
-    # commit last minute stuff to the OutputGenerator. For some output requirements it may be easier to 
+    # commit last minute stuff to the OutputGenerator. For some output requirements it may be easier to
     # stage to a local ParserHandler structure in Parse, then stage later.
     Expand, Validate, Parse = range(3)
 
@@ -47,13 +48,13 @@ class ErrorLogger:
         self.warnings.append(message)
 
     def append_error(self, message):
-        if len(self.errors) > 0: # append to empty list just adds new error.
-            message = self.errors.pop() + message 
+        if len(self.errors) > 0:  # append to empty list just adds new error.
+            message = self.errors.pop() + message
         self.errors.append(message)
 
     def append_warnings(self, message):
-        if len(self.warnings) > 0: # append to empty list just adds new error.
-            message = self.warnings.pop() + message 
+        if len(self.warnings) > 0:  # append to empty list just adds new error.
+            message = self.warnings.pop() + message
         self.warnings.append(message)
 
     def has_errors(self):
@@ -94,7 +95,7 @@ class OutputGenerator:
     # So OutputGen{Code}{1}{Include File1, Include File2}
     # or OutputGen{Header1}{1}{Function PrototypeA, Function PrototypeB}
     #
-    # This way different Handlers can be invoked for different purposes 
+    # This way different Handlers can be invoked for different purposes
     #   and order their output as they wish.
     # The constructor strucure mode_flages_files should coincide with the modes allowed.
     # So if you add to one add to the other. Same mode token, its used across them in the boolean run check!
@@ -113,8 +114,8 @@ class OutputGenerator:
                 for level in sorted(self.output[mode].keys()):
                     for message in self.output[mode][level]:
                         print (mode, "->", level, "->", message)
-            print ("\n") # separate modes
-            
+            print ("\n")  # separate modes
+
     def write_out(self):
         for mode in self.output.keys():
             if self.mode_flags_files[mode]['run'] == True:
@@ -125,18 +126,20 @@ class OutputGenerator:
 
 class Parser:
 
-    def __init__(self, filename):
+    def __init__(self, config, mainmiml, modeflages):
         self.errors = ErrorLogger()
         # declare modes_flags_files, the call to argument_check will set run by arg flags
-        modes_flags_files = {'code': {'run': False, 'file': None}, 'make': {'run': False, 'file': None}, 'header': {'run': False, 'file': None}}
+        modes_flags_files = {'code': {'run': modeflags['c'], 'file': None},
+                             'make': {'run': modeflags['m'], 'file': None},
+                             'header': {'run': modeflags['b'], 'file': None}}
 
         # Check command line arguments used to invoke codeGen, if good check file.
-        if self.argument_check(modes_flags_files):
-            self.errors.check_file(filename)
+        self.miml_file = mainmiml
+        self.errors.check_file(config)
         self.errors.check()
         # Then read config file.
         try:
-            self.config = yaml.load(open(filename, 'r'))
+            self.config = yaml.load(open(config, 'r'))
         except Exception as e:
             self.errors.new_error("YAML parsing error: " + str(e))
         self.errors.check()
@@ -249,7 +252,7 @@ class Parser:
 	    # Check for errors thrown during transition
         self.errors.check()
         return return_value
-        
+
 
     def matchpath(self, data):
         # This method returns True if a handler decides no other parsing is required for
@@ -292,29 +295,6 @@ class Parser:
             # call hander function 'key', in ParserHandlers, passing data
             return getattr(self.handler_functions, key)(data)
 
-    def argument_check(self, modes_flags_files):
-        # checks command line arguments, configures modes based on flags.
-        if len(sys.argv) > 3 or len(sys.argv) < 2:
-            self.errors.new_error("Illegal number of arguments! Expected 1 or 2, received: "
-            + str(len(sys.argv) - 1))
-            return False
-        self.miml_file = sys.argv[len(sys.argv) - 1]
-        mode_flags = "-cmh" if len(sys.argv) == 2 else sys.argv[1]
-        # Pretty good checking, someone can put in multiple valid letter flags and it will work as if 1 was supplied.
-        # Not sure why this would happen (typo?) but its "valid" by way of this code.
-        match = re.match(r"^-[cmh]+$", mode_flags)
-        if match:
-            if re.match(r"(.*c)", mode_flags):
-                modes_flags_files['code']['run'] = True
-            if re.match(r"(.*m)", mode_flags):
-                modes_flags_files['make']['run'] = True
-            if re.match(r"(.*h)", mode_flags):
-                modes_flags_files['header']['run'] = True
-            return True
-        else:
-            self.errors.new_error("Illegal mode usage, expecting -[chm]. Given : " + mode_flags)
-        return False
-
 class ParseHandlers:
 
     def __init__(self, parser, allowed_types, include_dirs, framework_dir):
@@ -333,7 +313,7 @@ class ParseHandlers:
         # Called after Parsing phase, allows handlers to stage data and then commit to OutputGenerator after parse stage.
         # or allows single time setup data, like fcfutils.h include, or carriage returns for pretty output.
         o = self.parser.output
-        o.append("code", 1, "#include \""+self.framework_dir+"/fcfutils.h\"") #TODO: FIX hardcoded path for fcfutils
+        o.append("code", 1, "#include \"" + self.framework_dir + "/fcfutils.h\"")  # TODO: FIX hardcoded path for fcfutils
         o.append("code", 6, "\n")
         o.append("code", 11, "\n")
         o.append("code", 16, "\n")
@@ -406,25 +386,25 @@ class ParseHandlers:
                             pos = 0
                             for param in sender_params:
                                 if not param[1] == p.master['modules'][receiver[0]]['receivers'][receiver[1]][pos][1]:
-                                    e.new_error("Message " + message + " cannot send to receiver " + 
+                                    e.new_error("Message " + message + " cannot send to receiver " +
                                     rec + ". Type mismatch on argument " + str(pos + 1))
                                 pos += 1
             del(p.unhandled['messages'])
             p.buffer['messages'] = data
             return True
         elif p.state == ParserStates.Parse:
-            for message in data.keys(): # for each message
+            for message in data.keys():  # for each message
                 (src, func) = message.split('.')
                 args = []
                 params = []
                 types = []
-                for caller_param in p.master['modules'][src]['senders'][func]: # for each param in caller
+                for caller_param in p.master['modules'][src]['senders'][func]:  # for each param in caller
                     args.append(caller_param[1] + " " + caller_param[0])
                     params.append(caller_param[0])
                     types.append(caller_param[1])
                 o.append("header", 10, "void " + func + "(" + ', '.join(types) + ');')
-                o.append("code", 20, "void " + func + "(" + ', '.join(args) + ') {')                    
-                for receivers in data[message]: # for each receiver
+                o.append("code", 20, "void " + func + "(" + ', '.join(args) + ') {')
+                for receivers in data[message]:  # for each receiver
                     (rsrc, rfunc) = receivers.split('.')
                     o.append("code", 20, "    " + rfunc + "(" + ', '.join(params) + ');')
                 o.append("code", 20, "}\n")
@@ -533,5 +513,17 @@ class ParseHandlers:
                     e.new_error("Illegal parameter type: " + str(param[1]) + " in " + '/'.join(p.path))
         return True
 
-parser = Parser('cg.conf')
-parser.parse()
+if __name__ == '__main__':
+    argparser = argparse.ArgumentParser()
+    argparser.add_argument('-c', help='c files?', action='store_true')
+    argparser.add_argument('-m', help='makefiles?', action='store_true')
+    argparser.add_argument('-b', help='headers?', action='store_true')
+    argparser.add_argument('miml', help='Main miml filename')
+    args = argparser.parse_args()
+
+    modeflags = {}
+    modeflags['c'] = args.c
+    modeflags['m'] = args.m
+    modeflags['b'] = args.b
+    parser = Parser('cg.conf', args.miml, modeflags)
+    parser.parse()
