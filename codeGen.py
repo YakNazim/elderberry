@@ -128,33 +128,30 @@ class Parser:
 
     def __init__(self, config, mainmiml, modeflages):
         self.errors = ErrorLogger()
-        # declare modes_flags_files, the call to argument_check will set run by arg flags
+        # declare modes_flags_files
         modes_flags_files = {'code': {'run': modeflags['c'], 'file': None},
                              'make': {'run': modeflags['m'], 'file': None},
                              'header': {'run': modeflags['b'], 'file': None}}
 
-        # Check command line arguments used to invoke codeGen, if good check file.
+        # Read config file.
         self.miml_file = mainmiml
         self.errors.check_file(config)
         self.errors.check()
-        # Then read config file.
+
         try:
             self.config = yaml.load(open(config, 'r'))
         except Exception as e:
             self.errors.new_error("YAML parsing error: " + str(e))
         self.errors.check()
 
-        # get filename configuration data
-        modes_flags_files['code']['file'] = self.config['code_filename']
-        modes_flags_files['header']['file'] = self.config['header_filename']
-        modes_flags_files['make']['file'] = self.config['make_filename']
-        # remove filename stuff from config, this makes it so only handler data is left. Better for handlers!
-        del(self.config['code_filename'])
-        del(self.config['header_filename'])
-        del(self.config['make_filename'])
+        # get filename configuration data and remove from config, this makes
+        # it so only handler data is left. Better for handlers!
+        modes_flags_files['code']['file'] = self.config.pop('code_filename')
+        modes_flags_files['header']['file'] = self.config.pop('header_filename')
+        modes_flags_files['make']['file'] = self.config.pop('make_filename')
+
         # get allowed types configuration data
-        allowed_types = self.config['allowed_types']
-        del(self.config['allowed_types'])
+        allowed_types = self.config.pop('allowed_types')
 
         # Other directories to search
         include_dirs = self.config.pop('include_dirs', '')
