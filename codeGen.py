@@ -216,6 +216,12 @@ class Parser:
             self.buffer = {}
             self.unhandled = copy.copy(self.master)
             self.state = ParserStates.Expand
+            newhandler = Expand(self, self.handler_functions.allowed_types,
+                                self.handler_functions.include_dirs,
+                                self.handler_functions.framework_dir)
+            newhandler.objects = self.handler_functions.objects
+            self.handler_functions = newhandler
+
 	    # Uncomment when adding MIML handlers that deal with Expansion.
 	    # print ("Expand This:")
 	    # print (yaml.dump(self.master))
@@ -228,9 +234,14 @@ class Parser:
                 self.errors.new_error("Unhandled MIML content at end of Expand state! " + str(self.unhandled))
             self.unhandled = copy.copy(self.master)
             self.state = ParserStates.Validate
+            newhandler = Validate(self, self.handler_functions.allowed_types,
+                    self.handler_functions.include_dirs,
+                    self.handler_functions.framework_dir)
+            newhandler.objects = self.handler_functions.objects
+            self.handler_functions = newhandler
 	    # Uncomment when adding MIML handlers that deal with Validation.
-	    # print ("Validate This:")
-	    # print (yaml.dump(self.master))
+            # print ("Validate This:")
+            # print (yaml.dump(self.master))
         elif self.state == ParserStates.Validate:
             if not self.unhandled == {}:
                 self.errors.new_error("Unhandled MIML content at end of Validate state! " + str(self.unhandled))
@@ -238,6 +249,12 @@ class Parser:
             # Make buffer contents master. Should we allow buffering during Validate? Seems like a no.
             self.master = self.buffer
             self.state = ParserStates.Parse
+            newhandler = Parse(self, self.handler_functions.allowed_types,
+                    self.handler_functions.include_dirs,
+                    self.handler_functions.framework_dir)
+            newhandler.objects = self.handler_functions.objects
+            self.handler_functions = newhandler
+
             # Uncomment when adding MIML handlers that deal with Parsing.
 	    # print ("Parse This:")
 	    # print (yaml.dump(self.master))
@@ -319,173 +336,29 @@ class ParseHandlers:
             self.parser.output.append("make", 5, "OBJECTS += " + ' '.join(self.objects))
 
     def parse_sources(self, data):
-        p = self.parser
-        e = p.errors
-        o = p.output
-        if p.state == ParserStates.Expand:
-            # Pull in external file data, place in buffer
-            del(p.unhandled['sources'])
-            p.buffer['modules'] = {}
-            p.buffer['source_order'] = data
-            for source in data:
-                foundfile = False  # This is kinda ugly, sorry
-                for pathname in self.include_dirs:
-                    filename = path.join(pathname, source[1])
-                    if path.exists(filename):
-                        foundfile = True
-                        try:
-                            p.buffer['modules'][source[0]] = yaml.load(open(filename, 'r'))
-                        except Exception as e:
-                            e.new_error("YAML parsing error: " + str(e))
-                if not foundfile:
-                    e.check_file(source[1])
-            return True
-        elif p.state == ParserStates.Parse:
-            module_miml = []
-            for source in data:
-                module_miml.append(source[1])
-            o.append("make", 10, o.mode_flags_files['code']['file'] + " " + o.mode_flags_files['header']['file'] + ": " + p.miml_file + " " + ' '.join(module_miml))
-            o.append("make", 10, "\t./codeGen.py -ch " + p.miml_file)
         return True  # Nothing responds to data under here, left in so includes/final can figure out what order to stage data.
 
     def parse_messages(self, data):
-        p = self.parser
-        e = p.errors
-        o = p.output
-        if p.state == ParserStates.Expand:
-            # Nothing to expand, but buffer messages for later passes.
-            del(p.unhandled['messages'])
-            p.buffer['messages'] = data
-            return True
-        elif p.state == ParserStates.Validate:
-            for message in data.keys():
-                sender = message.split('.')
-                if not len(sender) == 2:
-                    e.new_error("Illegal Sender syntax: " + message)
-                elif not sender[0] in p.master['modules']:
-                    e.new_error("Sending source " + sender[0] + " not loaded as module.")
-                elif not sender[1] in p.master['modules'][sender[0]]['senders']:
-                    e.new_error("Sending message " + sender[1] + " not defined as sender for " + sender[0])
-                else:
-                    sender_params = p.master['modules'][sender[0]]['senders'][sender[1]]
-                    for rec in data[message]:
-                        receiver = rec.split('.')
-                        if not len(sender) == 2:
-                            e.new_error("Illegal Receiver syntax: " + rec + " for message " + message)
-                        elif not receiver[0] in p.master['modules']:
-                            e.new_error("Receiver: " + receiver[0] + " not loaded as module.")
-                        elif not receiver[1] in p.master['modules'][receiver[0]]['receivers']:
-                            e.new_error("Receiver function " + receiver[1] + " not defined as receiver for " + receiver[0])
-                        elif not len(sender_params) == len(p.master['modules'][receiver[0]]['receivers'][receiver[1]]):
-                            e.new_error("Message " + str(sender) + " cannot send to receiver " + str(rec) +
-                            ". Number of arguments must be the same in both functions.")
-                        else:
-                            pos = 0
-                            for param in sender_params:
-                                if not param[1] == p.master['modules'][receiver[0]]['receivers'][receiver[1]][pos][1]:
-                                    e.new_error("Message " + message + " cannot send to receiver " +
-                                    rec + ". Type mismatch on argument " + str(pos + 1))
-                                pos += 1
-            del(p.unhandled['messages'])
-            p.buffer['messages'] = data
-            return True
-        elif p.state == ParserStates.Parse:
-            for message in data.keys():  # for each message
-                (src, func) = message.split('.')
-                args = []
-                params = []
-                types = []
-                for caller_param in p.master['modules'][src]['senders'][func]:  # for each param in caller
-                    args.append(caller_param[1] + " " + caller_param[0])
-                    params.append(caller_param[0])
-                    types.append(caller_param[1])
-                o.append("header", 10, "void " + func + "(" + ', '.join(types) + ');')
-                o.append("code", 20, "void " + func + "(" + ', '.join(args) + ') {')
-                for receivers in data[message]:  # for each receiver
-                    (rsrc, rfunc) = receivers.split('.')
-                    o.append("code", 20, "    " + rfunc + "(" + ', '.join(params) + ');')
-                o.append("code", 20, "}\n")
-            return True
         return False
 
     def parse_modules(self, data):
-        p = self.parser
-        e = p.errors
-        o = p.output
         # Must return False or other module matches will not happen.
-        # No need for Expansion code, modules are created during source expansion.
-        if p.state == ParserStates.Validate:
-            for source in data.keys():
-                for key in data[source]:
-                    if not key in ('include', 'object', 'init', 'final', 'senders', 'receivers'):
-                        e.new_error("Module: " + source + " contains illegal component: " + key)
-            del(p.unhandled['modules'])
-        p.buffer['modules'] = data
+        self.parser.buffer['modules'] = data
         return False
 
     def parse_includes(self, data):
-        # handles include files.
-        p = self.parser
-        e = p.errors
-        o = p.output
-        if p.state == ParserStates.Validate:
-            if not re.match(r"\w+\.h", data):
-                e.new_error("Illegal header file format: " + data + " in " + '/'.join(p.path))
-        elif p.state == ParserStates.Parse:
-            o.append("code", 5, "#include \"" + data + "\"")
         return True
 
     def parse_objects(self, data):
-        # handles object files for the make file, needs to add 1 row to make file so stages
-        # into (self.objects), purge makes output.
-        p = self.parser
-        e = p.errors
-        if p.state == ParserStates.Validate:
-            if not re.match(r"(/|\w)+\.o", data):
-                e.new_error("Illegal object file format: " + data + " in " + '/'.join(p.path))
-        elif p.state == ParserStates.Parse:
-            self.objects.append(data)
         return True
 
     def validate_inits(self, data):
-        # validates a modules initialize functions, output is generated via the module handler.
-        p = self.parser
-        e = p.errors
-        if p.state == ParserStates.Validate:
-            if not re.match(r"\w+\([^)]*\);", data):
-                e.new_error("Illegal initialize function: " + data + " in " + '/'.join(p.path))
         return True
 
     def parse_init_final(self, data):
-        p = self.parser
-        o = p.output
-        e = p.errors
-        if p.state == ParserStates.Validate:
-            del(p.unhandled['source_order'])
-            p.buffer['source_order'] = data
-        elif p.state == ParserStates.Parse:
-            finals = []
-            o.append("code", 10, "void fcf_initialize() {")
-            for source in data:
-                token = source[0]
-                if 'init' in p.master['modules'][token]:
-                    o.append("code", 10, "    " + p.master['modules'][token]['init'])
-                if "final" in p.master['modules'][token]:
-                    finals.append(p.master['modules'][token]['final'])
-            o.append("code", 10, "}")
-            o.append("code", 15, "void fcf_finalize() {")
-            while len(finals) > 0:
-                o.append("code", 15, "    " + finals.pop())
-            o.append("code", 15, "}")
         return True
 
     def validate_finals(self, data):
-        # validates a modules finalize functions, output is generated via the module handler.
-        p = self.parser
-        e = p.errors
-        if p.state == ParserStates.Validate:
-            if not re.match(r"\w+\([^)]*\);", data):
-                e.new_error("Illegal finalize function: " + data + " in " + '/'.join(p.path))
         return True
 
     def validate_senders(self, data):
@@ -495,6 +368,122 @@ class ParseHandlers:
     def validate_receivers(self, data):
         # validate_params wrapper that targets receivers
         return self.validate_params(data)
+
+    def validate_params(self, data):
+        return True
+
+class Expand(ParseHandlers):
+    def parse_sources(self, data):
+        p = self.parser
+        e = p.errors
+        o = p.output
+        # Pull in external file data, place in buffer
+        del(p.unhandled['sources'])
+        p.buffer['modules'] = {}
+        p.buffer['source_order'] = data
+        for source in data:
+            filename = source[1]
+            try:
+                p.buffer['modules'][source[0]] = yaml.load(open(filename, 'r'))
+            except Exception as err:
+                e.new_error("YAML parsing error: " + str(err))
+        return True
+
+    def parse_messages(self, data):
+        # Nothing to expand, but buffer messages for later passes.
+        del(self.parser.unhandled['messages'])
+        self.parser.buffer['messages'] = data
+        return True
+
+class Validate(ParseHandlers):
+    def parse_messages(self, data):
+        p = self.parser
+        e = p.errors
+        o = p.output
+        for message in data.keys():
+            sender = message.split('.')
+            if not len(sender) == 2:
+                e.new_error("Illegal Sender syntax: " + message)
+            elif not sender[0] in p.master['modules']:
+                e.new_error("Sending source " + sender[0] + " not loaded as module.")
+            elif not sender[1] in p.master['modules'][sender[0]]['senders']:
+                e.new_error("Sending message " + sender[1] + " not defined as sender for " + sender[0])
+            else:
+                sender_params = p.master['modules'][sender[0]]['senders'][sender[1]]
+                for rec in data[message]:
+                    receiver = rec.split('.')
+                    if not len(sender) == 2:
+                        e.new_error("Illegal Receiver syntax: " + rec + " for message " + message)
+                    elif not receiver[0] in p.master['modules']:
+                        e.new_error("Receiver: " + receiver[0] + " not loaded as module.")
+                    elif not receiver[1] in p.master['modules'][receiver[0]]['receivers']:
+                        e.new_error("Receiver function " + receiver[1] + " not defined as receiver for " + receiver[0])
+                    elif not len(sender_params) == len(p.master['modules'][receiver[0]]['receivers'][receiver[1]]):
+                        e.new_error("Message " + str(sender) + " cannot send to receiver " + str(rec) +
+                        ". Number of arguments must be the same in both functions.")
+                    else:
+                        pos = 0
+                        for param in sender_params:
+                            if not param[1] == p.master['modules'][receiver[0]]['receivers'][receiver[1]][pos][1]:
+                                e.new_error("Message " + message + " cannot send to receiver " +
+                                rec + ". Type mismatch on argument " + str(pos + 1))
+                            pos += 1
+        del(p.unhandled['messages'])
+        p.buffer['messages'] = data
+        return True
+
+    def parse_modules(self, data):
+        p = self.parser
+        e = p.errors
+        o = p.output
+        # Must return False or other module matches will not happen.
+        # No need for Expansion code, modules are created during source expansion.
+        for source in data.keys():
+            for key in data[source]:
+                if not key in ('include', 'object', 'init', 'final', 'senders', 'receivers'):
+                    e.new_error("Module: " + source + " contains illegal component: " + key)
+        del(p.unhandled['modules'])
+        p.buffer['modules'] = data
+        return False
+
+    def parse_includes(self, data):
+        # handles include files.
+        p = self.parser
+        e = p.errors
+        if not re.match(r"\w+\.h", data):
+            e.new_error("Illegal header file format: " + data + " in " + '/'.join(p.path))
+        return True
+
+    def parse_objects(self, data):
+        # handles object files for the make file, needs to add 1 row to make file so stages
+        # into (self.objects), purge makes output.
+        p = self.parser
+        e = p.errors
+        if not re.match(r"(/|\w)+\.o", data):
+            e.new_error("Illegal object file format: " + data + " in " + '/'.join(p.path))
+        return True
+
+    def validate_inits(self, data):
+        # validates a modules initialize functions, output is generated via the module handler.
+        p = self.parser
+        e = p.errors
+        if not re.match(r"\w+\([^)]*\);", data):
+            e.new_error("Illegal initialize function: " + data + " in " + '/'.join(p.path))
+        return True
+
+    def parse_init_final(self, data):
+        p = self.parser
+        del(p.unhandled['source_order'])
+        p.buffer['source_order'] = data
+        return True
+
+    def validate_finals(self, data):
+        # validates a modules finalize functions, output is generated via the module handler.
+        p = self.parser
+        e = p.errors
+        if not re.match(r"\w+\([^)]*\);", data):
+            e.new_error("Illegal finalize function: " + data + " in " + '/'.join(p.path))
+        return True
 
     def validate_params(self, data):
         # Validate sender and receiver parameters, checks that each parameter has 2 elements
@@ -509,6 +498,74 @@ class ParseHandlers:
                 if not datatype in self.allowed_types:
                     e.new_error("Illegal parameter type: " + str(param[1]) + " in " + '/'.join(p.path))
         return True
+
+class Parse(ParseHandlers):
+
+    def parse_sources(self, data):
+        p = self.parser
+        e = p.errors
+        o = p.output
+
+        module_miml = []
+        for source in data:
+            module_miml.append(source[1])
+        o.append("make", 10, o.mode_flags_files['code']['file'] + " " + o.mode_flags_files['header']['file'] + ": " + p.miml_file + " " + ' '.join(module_miml))
+        o.append("make", 10, "\t./codeGen.py -ch " + p.miml_file)
+        return True  # Nothing responds to data under here, left in so includes/final can figure out what order to stage data.
+
+    def parse_messages(self, data):
+        p = self.parser
+        e = p.errors
+        o = p.output
+        for message in data.keys():  # for each message
+            (src, func) = message.split('.')
+            args = []
+            params = []
+            types = []
+            for caller_param in p.master['modules'][src]['senders'][func]:  # for each param in caller
+                args.append(caller_param[1] + " " + caller_param[0])
+                params.append(caller_param[0])
+                types.append(caller_param[1])
+            o.append("header", 10, "void " + func + "(" + ', '.join(types) + ');')
+            o.append("code", 20, "void " + func + "(" + ', '.join(args) + ') {')
+            for receivers in data[message]:  # for each receiver
+                (rsrc, rfunc) = receivers.split('.')
+                o.append("code", 20, "    " + rfunc + "(" + ', '.join(params) + ');')
+            o.append("code", 20, "}\n")
+        return True
+
+    def parse_includes(self, data):
+        # handles include files.
+        p = self.parser
+        o = p.output
+        o.append("code", 5, "#include \"" + data + "\"")
+        return True
+
+    def parse_objects(self, data):
+        # handles object files for the make file, needs to add 1 row to make file so stages
+        # into (self.objects), purge makes output.
+        self.objects.append(data)
+        return True
+
+    def parse_init_final(self, data):
+        p = self.parser
+        o = p.output
+        e = p.errors
+        finals = []
+        o.append("code", 10, "void fcf_initialize() {")
+        for source in data:
+            token = source[0]
+            if 'init' in p.master['modules'][token]:
+                o.append("code", 10, "    " + p.master['modules'][token]['init'])
+            if "final" in p.master['modules'][token]:
+                finals.append(p.master['modules'][token]['final'])
+        o.append("code", 10, "}")
+        o.append("code", 15, "void fcf_finalize() {")
+        while len(finals) > 0:
+            o.append("code", 15, "    " + finals.pop())
+        o.append("code", 15, "}")
+        return True
+
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
