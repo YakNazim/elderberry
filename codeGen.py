@@ -159,8 +159,6 @@ class Parser:
                                Parse(self, allowed_types, framework_dir)]
         self.handler_functions = ParseHandlers(self, allowed_types, framework_dir)
 
-        self.path = ['']
-        self.state = None
         self.output = OutputGenerator(modes_flags_files)
 
     def parse(self):
@@ -211,25 +209,21 @@ class Parser:
         # Check for errors thrown during transition
         self.errors.check()
 
-    def crawl(self, data):
+    def crawl(self, data, path=['']):
         # Recursive function "Weee!"
         # Different structure walking for dict/list/scalar
         # path works as stack of directories (push/pop)
         # FIXME: what if key/element is not str
         if isinstance(data, dict):
             for key, value in data.items():
-                self.path.append(key)
-                if self.handle(value, self.path) == False:
-                    self.crawl (value)
-                self.path.pop()
+                if self.handle(value, path + [key]) == False:
+                    self.crawl(value, path + [key])
         elif isinstance(data, list):
             for element in data:
-                self.path.append(element)
-                if self.handle(element, self.path) == False:
-                    self.crawl (element)
-                self.path.pop()
+                if self.handle(element, path + [element]) == False:
+                    self.crawl(element, path + [element])
         else:
-            self.handle(data, self.path)
+            self.handle(data, path)
 
     def handle(self, data, path):
         # This method returns True if a handler decides no other parsing is required for
