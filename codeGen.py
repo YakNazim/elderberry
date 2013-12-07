@@ -189,28 +189,9 @@ class Parser:
         # Make files!!!
         self.output.write_out()
 
-    def crawl(self, data):
-        # Recursive function "Weee!"
-        # Different structure walking for dict/list/scalar
-        # path works as stack of directories (push/pop)
-        if type(data).__name__ == 'dict':
-            for key in data.keys():
-                self.path.append(key)
-                if self.matchpath(data[key]) == False:
-                    self.crawl (data[key])
-                self.path.pop()
-        elif type(data).__name__ == 'list':
-            for element in data:
-                self.path.append(element)
-                if self.matchpath(element) == False:
-                    self.crawl (element)
-                self.path.pop()
-        else:
-            self.matchpath(data)
-
     def transition(self, handler):
         state_name = handler.__class__.__name__
-	    # check for errors thrown during previous phase.
+        # check for errors thrown during previous phase.
         self.errors.check()
         if not self.unhandled == {}:
             self.errors.new_error("Unhandled MIML content at end of " +
@@ -223,31 +204,49 @@ class Parser:
         handler.objects = self.handler_functions.objects
         self.handler_functions = handler
 
-        # todo: logger
+        # todo: logger.debug
         # print (state_name + " This:")
         # print (yaml.dump(self.master))
 
-	    # Check for errors thrown during transition
+        # Check for errors thrown during transition
         self.errors.check()
 
-    def matchpath(self, data):
+    def crawl(self, data):
+        # Recursive function "Weee!"
+        # Different structure walking for dict/list/scalar
+        # path works as stack of directories (push/pop)
+        # FIXME: what if key/element is not str
+        if isinstance(data, dict):
+            for key, value in data.items():
+                self.path.append(key)
+                if self.handle(value, self.path) == False:
+                    self.crawl (value)
+                self.path.pop()
+        elif isinstance(data, list):
+            for element in data:
+                self.path.append(element)
+                if self.handle(element, self.path) == False:
+                    self.crawl (element)
+                self.path.pop()
+        else:
+            self.handle(data, self.path)
+
+    def handle(self, data, path):
         # This method returns True if a handler decides no other parsing is required for
         # the data it handles, for the mode it is in.
         return_value = False
         for key, value in self.config.items():
-            if fnmatch.fnmatchcase('/'.join(self.path), value['path']):
-                return_value = return_value | self.call_handler_function(key, data)
-        return return_value
+            # match current location to a handler path
+            if fnmatch.fnmatchcase('/'.join(path), value['path']):
+                # verify data type is correct
+                if type(data).__name__ == self.config[key]['type']:
+                    # call hander function 'key', in ParserHandlers, passing data
+                    return_value = return_value or getattr(self.handler_functions, key)(data)
+                else:
+                    # type of data is not same as what was declared in cg.conf, so error.
+                    self.errors.new_error("Handler type mismatch. " + key + " expects " + self.config[key]['type'] + ", received " + type(data).__name__)
 
-    def call_handler_function(self, key, data):
-        # NOTE: This is where the handler functions get called!!!
-        if not type(data).__name__ == self.config[key]['type']:
-            # type of data is not same as what was declared in cg.conf, so error.
-            self.errors.new_error("Handler type mismatch. " + key + " expects " + self.config[key]['type'] + " received " + type(data).__name__)
-            return False
-        else:
-            # call hander function 'key', in ParserHandlers, passing data
-            return getattr(self.handler_functions, key)(data)
+        return return_value
 
 class ParseHandlers:
 
