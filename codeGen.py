@@ -18,6 +18,7 @@ import re
 import yaml
 import copy
 from os import path, access, R_OK
+import fnmatch
 from collections import defaultdict
 
 class ErrorLogger:
@@ -158,9 +159,6 @@ class Parser:
                                Parse(self, allowed_types, framework_dir)]
         self.handler_functions = ParseHandlers(self, allowed_types, framework_dir)
 
-        # Make paths lists for easier parsing
-        for handler in self.config.keys():
-            self.config[handler]['path'] = self.config[handler]['path'].split("/")
         self.path = ['']
         self.state = None
         self.output = OutputGenerator(modes_flags_files)
@@ -235,31 +233,9 @@ class Parser:
     def matchpath(self, data):
         # This method returns True if a handler decides no other parsing is required for
         # the data it handles, for the mode it is in.
-        #
-        # Goal: Flexible not complicated!!! We could support all kinds of crazy, but we won't!
-        #    '*' means single position wildcard, not arbitrary number of elements.
-        #    handler paths that do not begin with '/' should not contain any '/'.
-        #      They represent single token matches for the immediate point.
-        #
-        # Possible Match Cases: self.path = a / self.config[key]['path'] = b
-        # 1 - len(a) == len(b) and ( a[x] == b[x] or b[x] == '*' )
-        # 2 - len(a) != len(b) && len(b) == 1
-        #
-        # Someone may put '*' for path, not sure if I want to make that illegal.
-
         return_value = False
-        for key in self.config.keys():
-            if len(self.path) == len(self.config[key]['path']):
-                # path == len of current handler path, so we are checking #1 above (comments)
-                match = True
-                for position in range(0, len(self.path)):
-                    if (not self.path[position] == self.config[key]['path'][position] and
-                            not self.config[key]['path'][position] == '*'):
-                        match = False
-                if match == True:
-                    return_value = return_value | self.call_handler_function(key, data)
-            if len(self.config[key]['path']) == 1 and self.config[key]['path'][0] == self.path[-1]:
-                # only len 1 for path and we matched last element. Note: /foo is length 2 path (invisible root)
+        for key, value in self.config.items():
+            if fnmatch.fnmatchcase('/'.join(self.path), value['path']):
                 return_value = return_value | self.call_handler_function(key, data)
         return return_value
 
