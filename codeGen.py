@@ -153,14 +153,11 @@ class Parser:
         # get allowed types configuration data
         allowed_types = self.config.pop('allowed_types')
 
-        # Other directories to search
-        include_dirs = self.config.pop('include_dirs', '')
-
         # Frameworkinclude_dirs location
         framework_dir = self.config.pop('framework_dir', '')
 
         # Setup a ParserHandlers obj
-        self.handler_functions = ParseHandlers(self, allowed_types, include_dirs, framework_dir)
+        self.handler_functions = ParseHandlers(self, allowed_types, framework_dir)
 
         # Make paths lists for easier parsing
         for handler in self.config.keys():
@@ -217,7 +214,6 @@ class Parser:
             self.unhandled = copy.copy(self.master)
             self.state = ParserStates.Expand
             newhandler = Expand(self, self.handler_functions.allowed_types,
-                                self.handler_functions.include_dirs,
                                 self.handler_functions.framework_dir)
             newhandler.objects = self.handler_functions.objects
             self.handler_functions = newhandler
@@ -235,7 +231,6 @@ class Parser:
             self.unhandled = copy.copy(self.master)
             self.state = ParserStates.Validate
             newhandler = Validate(self, self.handler_functions.allowed_types,
-                    self.handler_functions.include_dirs,
                     self.handler_functions.framework_dir)
             newhandler.objects = self.handler_functions.objects
             self.handler_functions = newhandler
@@ -250,7 +245,6 @@ class Parser:
             self.master = self.buffer
             self.state = ParserStates.Parse
             newhandler = Parse(self, self.handler_functions.allowed_types,
-                    self.handler_functions.include_dirs,
                     self.handler_functions.framework_dir)
             newhandler.objects = self.handler_functions.objects
             self.handler_functions = newhandler
@@ -311,12 +305,10 @@ class Parser:
 
 class ParseHandlers:
 
-    def __init__(self, parser, allowed_types, include_dirs, framework_dir):
+    def __init__(self, parser, allowed_types, framework_dir):
         self.parser = parser
         # to support validate_params
         self.allowed_types = allowed_types
-
-        self.include_dirs = include_dirs
         self.framework_dir = framework_dir
 
         # objects for single line make file
