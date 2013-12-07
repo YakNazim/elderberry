@@ -20,19 +20,6 @@ import copy
 from os import path, access, R_OK
 from collections import defaultdict
 
-class ParserStates:
-    # Since we have multiple MIML files now we need phases for processing.
-    # Expansion allows handler functions that expect data in other files the opportunity
-    #   to pull in that external data and place it in the parse tree.
-    # Validation allows handler functions the opportunity to examine other data in the tree
-    #   to ensure it is ready for use, including data pulled in by other functions.
-    # Parsing is where the actual parsing work happens, where handler functions generate output.
-    # Actual output writting happens when all these phases are complete and is not part of "parsing".
-    # There is a 4th stage (not really a stage), purge. In which a ParserHandlers function is called to
-    # commit last minute stuff to the OutputGenerator. For some output requirements it may be easier to
-    # stage to a local ParserHandler structure in Parse, then stage later.
-    Expand, Validate, Parse = range(3)
-
 class ErrorLogger:
     # Log errors or warnings here, then check periodically.
     # Code Generator uses no warnings, but they can be fun for debugging.
@@ -86,7 +73,6 @@ class ErrorLogger:
             for error in self.errors:
                 print (error)
             sys.exit(0)
-
 
 class OutputGenerator:
     # What we want here is:
@@ -156,7 +142,20 @@ class Parser:
         # Frameworkinclude_dirs location
         framework_dir = self.config.pop('framework_dir', '')
 
-        # Setup a ParserHandlers obj
+        # Setup a ParserHandlers objects
+        # Since we have multiple MIML files now we need phases for processing.
+        # Expansion allows handler functions that expect data in other files the opportunity
+        #   to pull in that external data and place it in the parse tree.
+        # Validation allows handler functions the opportunity to examine other data in the tree
+        #   to ensure it is ready for use, including data pulled in by other functions.
+        # Parsing is where the actual parsing work happens, where handler functions generate output.
+        # Actual output writing happens when all these phases are complete and is not part of "parsing".
+        # There is a 4th stage (not really a stage), purge. In which a ParserHandlers function is called to
+        # commit last minute stuff to the OutputGenerator. For some output requirements it may be easier to
+        # stage to a local ParserHandler structure in Parse, then stage later.
+        self.handler_states = [Expand(self, allowed_types, framework_dir),
+                               Validate(self, allowed_types, framework_dir),
+                               Parse(self, allowed_types, framework_dir)]
         self.handler_functions = ParseHandlers(self, allowed_types, framework_dir)
 
         # Make paths lists for easier parsing
@@ -174,9 +173,17 @@ class Parser:
         except Exception as e:
             self.errors.new_error("YAML parsing error: " + str(e))
             self.errors.check()
+
         # Do Expand, Validate, Parse
-        while self.transition() == True:
+        # Initialize the stage buffers
+        self.buffer = self.master
+        self.unhandled = {}
+        for handler in self.handler_states:
+            self.transition(handler)
             self.crawl(self.master)
+
+        # purge staged data. Our 4th state, kinda...
+        self.handler_functions.purge()
         # Output
         # Let's you see stuff, uncomment when writing MIML extensions and trying to
         # figure out where to insert content in OutputGenerator.
@@ -203,64 +210,27 @@ class Parser:
         else:
             self.matchpath(data)
 
-    def transition(self):
-        # This function can be cleaned up a bit, its unfolded to let me figure out what should be same/different atm.
-	    # check for errors thrown during last phase.
+    def transition(self, handler):
+        state_name = handler.__class__.__name__
+	    # check for errors thrown during previous phase.
         self.errors.check()
-        return_value = True
-        if self.state == None:
-            # Set new buffer, copy master to unhandled.
-            self.buffer = {}
-            self.unhandled = copy.copy(self.master)
-            self.state = ParserStates.Expand
-            newhandler = Expand(self, self.handler_functions.allowed_types,
-                                self.handler_functions.framework_dir)
-            newhandler.objects = self.handler_functions.objects
-            self.handler_functions = newhandler
+        if not self.unhandled == {}:
+            self.errors.new_error("Unhandled MIML content at end of " +
+                        state_name + " state!\n" + yaml.dump(self.unhandled))
 
-	    # Uncomment when adding MIML handlers that deal with Expansion.
-	    # print ("Expand This:")
-	    # print (yaml.dump(self.master))
-        elif self.state == ParserStates.Expand:
-            # Make buffer contents master.
-            self.master = self.buffer
-            self.buffer = {}
-	        # Necessary to check unhandled from Expand or we will miss problems during buffer transfer
-            if not self.unhandled == {}:
-                self.errors.new_error("Unhandled MIML content at end of Expand state! " + str(self.unhandled))
-            self.unhandled = copy.copy(self.master)
-            self.state = ParserStates.Validate
-            newhandler = Validate(self, self.handler_functions.allowed_types,
-                    self.handler_functions.framework_dir)
-            newhandler.objects = self.handler_functions.objects
-            self.handler_functions = newhandler
-	    # Uncomment when adding MIML handlers that deal with Validation.
-            # print ("Validate This:")
-            # print (yaml.dump(self.master))
-        elif self.state == ParserStates.Validate:
-            if not self.unhandled == {}:
-                self.errors.new_error("Unhandled MIML content at end of Validate state! " + str(self.unhandled))
-            # Let's not do buffers and unhandled structs after this point, saves 'pointless' code in handlers.
-            # Make buffer contents master. Should we allow buffering during Validate? Seems like a no.
-            self.master = self.buffer
-            self.state = ParserStates.Parse
-            newhandler = Parse(self, self.handler_functions.allowed_types,
-                    self.handler_functions.framework_dir)
-            newhandler.objects = self.handler_functions.objects
-            self.handler_functions = newhandler
+        self.master = self.buffer
+        self.unhandled = copy.copy(self.master)
+        self.buffer = {}
 
-            # Uncomment when adding MIML handlers that deal with Parsing.
-	    # print ("Parse This:")
-	    # print (yaml.dump(self.master))
-        else:
-            # purge staged data. Our 4th state, kinda...
-            self.handler_functions.purge()
-            # last transition so return false.
-            return_value = False
+        handler.objects = self.handler_functions.objects
+        self.handler_functions = handler
+
+        # todo: logger
+        # print (state_name + " This:")
+        # print (yaml.dump(self.master))
+
 	    # Check for errors thrown during transition
         self.errors.check()
-        return return_value
-
 
     def matchpath(self, data):
         # This method returns True if a handler decides no other parsing is required for
@@ -482,13 +452,12 @@ class Validate(ParseHandlers):
         # and that the second is an approved type (self.allowed_types)
         p = self.parser
         e = p.errors
-        if p.state == ParserStates.Validate:
-            for param in data:
-                if not len(param) == 2:
-                    e.new_error("Illegal parameter definition: " + str(param) + " in " + '/'.join(p.path))
-                datatype = re.match(r"(?:const\s)?((?:unsigned\s)?\w+)(?:\s?[*&])?", param[1]).group(1)
-                if not datatype in self.allowed_types:
-                    e.new_error("Illegal parameter type: " + str(param[1]) + " in " + '/'.join(p.path))
+        for param in data:
+            if not len(param) == 2:
+                e.new_error("Illegal parameter definition: " + str(param) + " in " + '/'.join(p.path))
+            datatype = re.match(r"(?:const\s)?((?:unsigned\s)?\w+)(?:\s?[*&])?", param[1]).group(1)
+            if not datatype in self.allowed_types:
+                e.new_error("Illegal parameter type: " + str(param[1]) + " in " + '/'.join(p.path))
         return True
 
 class Parse(ParseHandlers):
