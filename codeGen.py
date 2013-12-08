@@ -55,15 +55,6 @@ class ErrorLogger:
             return True
         return False
 
-    def check_file(self, filename):
-        if path.isfile(filename) == False:
-            self.new_error("File: '" + filename + "' cannot be found!")
-        elif access(filename, R_OK) == False:
-            self.new_error("File: '" + filename + "' cannot be opened for reading!")
-        else:
-            return True
-        return False
-
     def check(self):
         if self.has_warnings():
             print (len(self.warnings), " warning(s) encountered!")
@@ -122,12 +113,13 @@ class Parser:
 
         # Read config file.
         self.miml_file = mainmiml
-        self.errors.check_file(config)
-        self.errors.check()
 
         try:
-            self.config = yaml.load(open(config, 'r'))
-        except Exception as e:
+            with open(config, 'r') as conf:
+                self.config = yaml.load(conf)
+        except OSError as e:
+            self.errors.new_error("Error opening config file: " + str(e))
+        except yaml.YAMLError as e:
             self.errors.new_error("YAML parsing error: " + str(e))
         self.errors.check()
 
@@ -165,10 +157,13 @@ class Parser:
         # top level 'public' function. Since we have external MIML docs we need to pull those in
         # before we crawl, so order of processing matters even though order of MIML elements does not.
         try:
-            self.master = yaml.load(open(self.miml_file, 'r'))
-        except Exception as e:
+            with open(self.miml_file, 'r') as mainmiml:
+                self.master = yaml.load(mainmiml)
+        except OSError as e:
+            self.errors.new_error("Error opening main MIML file: " + str(e))
+        except yaml.YAMLError as e:
             self.errors.new_error("YAML parsing error: " + str(e))
-            self.errors.check()
+        self.errors.check()
 
         # Do Expand, Validate, Parse
         # Initialize the stage buffers
@@ -312,11 +307,14 @@ class Expand(ParseHandlers):
         p.buffer['modules'] = {}
         p.buffer['source_order'] = data
         for source in data:
-            filename = source[1]
             try:
-                p.buffer['modules'][source[0]] = yaml.load(open(filename, 'r'))
-            except Exception as err:
-                e.new_error("YAML parsing error: " + str(err))
+                with open(source[1], 'r') as module:
+                    p.buffer['modules'][source[0]] = yaml.load(module)
+            except OSError as e:
+                e.new_error("Error opening module MIML file: " + str(e))
+            except yaml.YAMLError as e:
+                e.new_error("YAML parsing error: " + str(e))
+
         return True
 
     def messages(self, data):
