@@ -199,7 +199,7 @@ class Parser:
         self.unhandled = copy.copy(self.master)
         self.buffer = {}
 
-        handler.objects = self.handler_functions.objects
+        handler.object_names = self.handler_functions.object_names
         self.handler_functions = handler
 
         # todo: logger.debug
@@ -251,7 +251,7 @@ class ParseHandlers:
         self.framework_dir = framework_dir
 
         # objects for single line make file
-        self.objects = []
+        self.object_names = []
 
     def purge(self):
         # Required function, not part of config-based handlers
@@ -263,51 +263,50 @@ class ParseHandlers:
         o.append("code", 11, "\n")
         o.append("code", 16, "\n")
         o.append("make", 6, "\n")
-        if len(self.objects) > 0:
-            self.parser.output.append("make", 5, "OBJECTS += " + ' '.join(self.objects))
+        if len(self.object_names) > 0:
+            self.parser.output.append("make", 5, "OBJECTS += " + ' '.join(self.object_names))
 
-    def parse_sources(self, data):
+    def sources(self, data):
         return True  # Nothing responds to data under here, left in so includes/final can figure out what order to stage data.
 
-    def parse_messages(self, data):
+    def messages(self, data):
         return False
 
-    def parse_modules(self, data):
+    def modules(self, data):
         # Must return False or other module matches will not happen.
         self.parser.buffer['modules'] = data
         return False
 
-    def parse_includes(self, data):
+    def includes(self, data):
         return True
 
-    def parse_objects(self, data):
+    def objects(self, data):
         return True
 
-    def validate_inits(self, data):
+    def inits(self, data):
         return True
 
-    def parse_init_final(self, data):
+    def init_final(self, data):
         return True
 
-    def validate_finals(self, data):
+    def finals(self, data):
         return True
 
-    def validate_senders(self, data):
+    def senders(self, data):
         # validate_params wrapper that targets senders
-        return self.validate_params(data)
+        return self.params(data)
 
-    def validate_receivers(self, data):
+    def receivers(self, data):
         # validate_params wrapper that targets receivers
-        return self.validate_params(data)
+        return self.params(data)
 
-    def validate_params(self, data):
+    def params(self, data):
         return True
 
 class Expand(ParseHandlers):
-    def parse_sources(self, data):
+    def sources(self, data):
         p = self.parser
         e = p.errors
-        o = p.output
         # Pull in external file data, place in buffer
         del(p.unhandled['sources'])
         p.buffer['modules'] = {}
@@ -320,17 +319,16 @@ class Expand(ParseHandlers):
                 e.new_error("YAML parsing error: " + str(err))
         return True
 
-    def parse_messages(self, data):
+    def messages(self, data):
         # Nothing to expand, but buffer messages for later passes.
         del(self.parser.unhandled['messages'])
         self.parser.buffer['messages'] = data
         return True
 
 class Validate(ParseHandlers):
-    def parse_messages(self, data):
+    def messages(self, data):
         p = self.parser
         e = p.errors
-        o = p.output
         for message in data.keys():
             sender = message.split('.')
             if not len(sender) == 2:
@@ -363,21 +361,19 @@ class Validate(ParseHandlers):
         p.buffer['messages'] = data
         return True
 
-    def parse_modules(self, data):
+    def modules(self, modules):
         p = self.parser
         e = p.errors
-        o = p.output
-        # Must return False or other module matches will not happen.
-        # No need for Expansion code, modules are created during source expansion.
-        for source in data.keys():
-            for key in data[source]:
+        for name, body in modules.items():
+            for key in body:
                 if not key in ('include', 'object', 'init', 'final', 'senders', 'receivers'):
-                    e.new_error("Module: " + source + " contains illegal component: " + key)
+                    e.new_error("Module: " + name + " contains illegal component: " + key)
         del(p.unhandled['modules'])
-        p.buffer['modules'] = data
+        p.buffer['modules'] = modules
+        # Must return False or other module matches will not happen.
         return False
 
-    def parse_includes(self, data):
+    def includes(self, data):
         # handles include files.
         p = self.parser
         e = p.errors
@@ -385,7 +381,7 @@ class Validate(ParseHandlers):
             e.new_error("Illegal header file format: " + data + " in " + '/'.join(p.path))
         return True
 
-    def parse_objects(self, data):
+    def objects(self, data):
         # handles object files for the make file, needs to add 1 row to make file so stages
         # into (self.objects), purge makes output.
         p = self.parser
@@ -394,7 +390,7 @@ class Validate(ParseHandlers):
             e.new_error("Illegal object file format: " + data + " in " + '/'.join(p.path))
         return True
 
-    def validate_inits(self, data):
+    def inits(self, data):
         # validates a modules initialize functions, output is generated via the module handler.
         p = self.parser
         e = p.errors
@@ -402,13 +398,13 @@ class Validate(ParseHandlers):
             e.new_error("Illegal initialize function: " + data + " in " + '/'.join(p.path))
         return True
 
-    def parse_init_final(self, data):
+    def init_final(self, data):
         p = self.parser
         del(p.unhandled['source_order'])
         p.buffer['source_order'] = data
         return True
 
-    def validate_finals(self, data):
+    def finals(self, data):
         # validates a modules finalize functions, output is generated via the module handler.
         p = self.parser
         e = p.errors
@@ -416,7 +412,7 @@ class Validate(ParseHandlers):
             e.new_error("Illegal finalize function: " + data + " in " + '/'.join(p.path))
         return True
 
-    def validate_params(self, data):
+    def params(self, data):
         # Validate sender and receiver parameters, checks that each parameter has 2 elements
         # and that the second is an approved type (self.allowed_types)
         p = self.parser
@@ -431,9 +427,8 @@ class Validate(ParseHandlers):
 
 class Parse(ParseHandlers):
 
-    def parse_sources(self, data):
+    def sources(self, data):
         p = self.parser
-        e = p.errors
         o = p.output
 
         module_miml = []
@@ -443,9 +438,8 @@ class Parse(ParseHandlers):
         o.append("make", 10, "\t./codeGen.py -ch " + p.miml_file)
         return True  # Nothing responds to data under here, left in so includes/final can figure out what order to stage data.
 
-    def parse_messages(self, data):
+    def messages(self, data):
         p = self.parser
-        e = p.errors
         o = p.output
         for message in data.keys():  # for each message
             (src, func) = message.split('.')
@@ -464,23 +458,22 @@ class Parse(ParseHandlers):
             o.append("code", 20, "}\n")
         return True
 
-    def parse_includes(self, data):
+    def includes(self, data):
         # handles include files.
         p = self.parser
         o = p.output
         o.append("code", 5, "#include \"" + data + "\"")
         return True
 
-    def parse_objects(self, data):
+    def objects(self, data):
         # handles object files for the make file, needs to add 1 row to make file so stages
-        # into (self.objects), purge makes output.
-        self.objects.append(data)
+        # into (self.object_names), purge makes output.
+        self.object_names.append(data)
         return True
 
-    def parse_init_final(self, data):
+    def init_final(self, data):
         p = self.parser
         o = p.output
-        e = p.errors
         finals = []
         o.append("code", 10, "void fcf_initialize() {")
         for source in data:
