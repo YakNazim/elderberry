@@ -129,9 +129,6 @@ class Parser:
         modes_flags_files['header']['file'] = self.config.pop('header_filename')
         modes_flags_files['make']['file'] = self.config.pop('make_filename')
 
-        # Frameworkinclude_dirs location
-        framework_dir = self.config.pop('framework_dir', '')
-
         # Setup a ParserHandlers objects
         # Since we have multiple MIML files now we need phases for processing.
         # Expansion allows handler functions that expect data in other files the opportunity
@@ -143,10 +140,10 @@ class Parser:
         # There is a 4th stage (not really a stage), purge. In which a ParserHandlers function is called to
         # commit last minute stuff to the OutputGenerator. For some output requirements it may be easier to
         # stage to a local ParserHandler structure in Parse, then stage later.
-        self.handler_states = [Expand(self, framework_dir),
-                               Validate(self, framework_dir),
-                               Parse(self, framework_dir)]
-        self.handler_functions = ParseHandlers(self, framework_dir)
+        self.handler_states = [Expand(self),
+                               Validate(self),
+                               Parse(self)]
+        self.handler_functions = ParseHandlers(self)
 
         self.output = OutputGenerator(modes_flags_files)
 
@@ -191,7 +188,6 @@ class Parser:
         self.unhandled = copy.copy(self.master)
         self.buffer = {}
 
-        handler.object_names = self.handler_functions.object_names
         self.handler_functions = handler
 
         # todo: logger.debug
@@ -236,13 +232,8 @@ class Parser:
 
 class ParseHandlers:
 
-    def __init__(self, parser, framework_dir):
+    def __init__(self, parser):
         self.parser = parser
-        # to support validate_params
-        self.framework_dir = framework_dir
-
-        # objects for single line make file
-        self.object_names = []
 
     def purge(self):
         # Required function, not part of config-based handlers
@@ -254,8 +245,6 @@ class ParseHandlers:
         o.append("code", 16, "\n")
         o.append("code", 101, "\n")
         o.append("make", 6, "\n")
-        if len(self.object_names) > 0:
-            self.parser.output.append("make", 5, "OBJECTS += " + ' '.join(self.object_names))
 
     def sources(self, data):
         return True  # Nothing responds to data under here, left in so includes/final can figure out what order to stage data.
@@ -461,9 +450,8 @@ class Parse(ParseHandlers):
         return True
 
     def objects(self, data):
-        # handles object files for the make file, needs to add 1 row to make file so stages
-        # into (self.object_names), purge makes output.
-        self.object_names.append(data)
+        # handles object files for the make file. Gives each object its own row
+        self.parser.output.append("make", 5, "OBJECTS += " + data)
         return True
 
     def init_final(self, data):
