@@ -257,6 +257,7 @@ class ParseHandlers:
         o.append("code", 6, "\n")
         o.append("code", 11, "\n")
         o.append("code", 16, "\n")
+        o.append("code", 101, "\n")
         o.append("make", 6, "\n")
         if len(self.object_names) > 0:
             self.parser.output.append("make", 5, "OBJECTS += " + ' '.join(self.object_names))
@@ -400,6 +401,7 @@ class Validate(ParseHandlers):
         p = self.parser
         del(p.unhandled['source_order'])
         p.buffer['source_order'] = data
+        p.buffer['mainfunc'] = []
         return True
 
     def finals(self, data):
@@ -473,18 +475,64 @@ class Parse(ParseHandlers):
         p = self.parser
         o = p.output
         finals = []
-        o.append("code", 10, "void fcf_initialize() {")
+        o.append("code", 10, "int modules_initialize(struct ev_loop * loop) {")
         for source in data:
             token = source[0]
             if 'init' in p.master['modules'][token]:
                 o.append("code", 10, "    " + p.master['modules'][token]['init'])
             if "final" in p.master['modules'][token]:
                 finals.append(p.master['modules'][token]['final'])
-        o.append("code", 10, "}")
-        o.append("code", 15, "void fcf_finalize() {")
+        o.append("code", 10, "    return 1;\n}")
+        o.append("code", 15, "void modules_finalize(struct ev_loop * loop) {")
         while len(finals) > 0:
             o.append("code", 15, "    " + finals.pop())
         o.append("code", 15, "}")
+        return True
+
+    def main(self, data):
+        o = self.parser.output
+        o.append("code", 5, """
+#include <stdlib.h>
+#include <stdio.h>
+#include <signal.h>
+#include <ev.h>
+""")
+
+        # FIXME: escaped newlines
+        o.append("code", 100, """
+static void stop_cb(struct ev_loop *loop, ev_signal *w, int revents){
+    printf("Quitting\\n");
+    ev_break(loop, EVBREAK_ALL);
+}
+
+int main(int argc, char *argv[]){
+    //todo: boilerplate
+    //todo: ev_version check, ev_backends check
+
+    int retval = EXIT_SUCCESS;
+
+    struct ev_loop * loop;
+    loop = ev_default_loop(0);
+    if(!loop){
+        fprintf(stderr, "Fatal: could not initialize libev\\n");
+        return EXIT_FAILURE;
+    }
+
+    ev_signal stop;
+    ev_signal_init(&stop, stop_cb, SIGINT);
+    ev_signal_start(loop, &stop);
+    //todo: argc, argv passed to initialize. Use argp?
+    if(modules_initialize(loop)){
+        fprintf(stderr, "Fatal: module initialization failure\\n");
+        retval = EXIT_FAILURE;
+    }else{
+        ev_run (loop, 0);
+    }
+    modules_finalize(loop);
+
+    return retval;
+}""")
+
         return True
 
 
