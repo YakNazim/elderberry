@@ -129,9 +129,6 @@ class Parser:
         modes_flags_files['header']['file'] = self.config.pop('header_filename')
         modes_flags_files['make']['file'] = self.config.pop('make_filename')
 
-        # get allowed types configuration data
-        allowed_types = self.config.pop('allowed_types')
-
         # Frameworkinclude_dirs location
         framework_dir = self.config.pop('framework_dir', '')
 
@@ -146,10 +143,10 @@ class Parser:
         # There is a 4th stage (not really a stage), purge. In which a ParserHandlers function is called to
         # commit last minute stuff to the OutputGenerator. For some output requirements it may be easier to
         # stage to a local ParserHandler structure in Parse, then stage later.
-        self.handler_states = [Expand(self, allowed_types, framework_dir),
-                               Validate(self, allowed_types, framework_dir),
-                               Parse(self, allowed_types, framework_dir)]
-        self.handler_functions = ParseHandlers(self, allowed_types, framework_dir)
+        self.handler_states = [Expand(self, framework_dir),
+                               Validate(self, framework_dir),
+                               Parse(self, framework_dir)]
+        self.handler_functions = ParseHandlers(self, framework_dir)
 
         self.output = OutputGenerator(modes_flags_files)
 
@@ -239,10 +236,9 @@ class Parser:
 
 class ParseHandlers:
 
-    def __init__(self, parser, allowed_types, framework_dir):
+    def __init__(self, parser, framework_dir):
         self.parser = parser
         # to support validate_params
-        self.allowed_types = allowed_types
         self.framework_dir = framework_dir
 
         # objects for single line make file
@@ -414,14 +410,14 @@ class Validate(ParseHandlers):
 
     def params(self, data):
         # Validate sender and receiver parameters, checks that each parameter has 2 elements
-        # and that the second is an approved type (self.allowed_types)
+        # and that the second could be a C type
         p = self.parser
         e = p.errors
         for param in data:
             if not len(param) == 2:
                 e.new_error("Illegal parameter definition: " + str(param) + " in " + '/'.join(p.path))
-            datatype = re.match(r"(?:const\s)?((?:unsigned\s)?\w+)(?:\s?[*&])?", param[1]).group(1)
-            if not datatype in self.allowed_types:
+            datatype = re.match(r"(?:const\s)?((?:unsigned\s)?\w+)(?:\s?[*&])?", param[1]).group(1)  # FIXME: This doesn't look like it hits all the types
+            if not datatype:
                 e.new_error("Illegal parameter type: " + str(param[1]) + " in " + '/'.join(p.path))
         return True
 
