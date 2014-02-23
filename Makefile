@@ -1,5 +1,8 @@
 DOXYFILE := ./Doxyfile
 
+LDLIBS = -lev
+all: evutils
+
 html:
 	rm -rf ./html
 	doxygen $(DOXYFILE)
