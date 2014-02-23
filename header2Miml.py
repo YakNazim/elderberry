@@ -1,7 +1,6 @@
 #!/usr/bin/python
 
 #     Assumptions:
-#         - only parses extern functions
 #         - init/final functions only detected with "initialize" and "finalize" in name
 #         - any non-init/final functions with "initialize" or "finalize" aren't included
 #         - only data types recognized are [const|unsigned] [int|char]
@@ -10,6 +9,7 @@
 import sys, re, os
 import argparse
 import yaml
+import pycparser
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
@@ -42,34 +42,40 @@ if __name__ == '__main__':
 
     output = {'include': header, 'object': objfile, 'senders': {}, 'receivers': {}}
 
-    foundInit = 0
-    foundFinal = 0
-    foundSenders = 0
-    foundReceivers = 0
-
     def xstr(s):
         if s is None:
             return ''
         return str(s)
 
-    for item in codeLines:
-        # match = re.match( r'[\s]*(extern[\s]+)?([\w]+[\s]+)([\w_-]+)[\s]*\((.*)\).*', item.strip('\n'), re.M|re.I)
-        match = re.match(r'[\s]*(extern[\s]+)?([\w]+[\s]+)([\w_-]+)[\s]*\((.*)\)[\s]*;[\s]*(\/\/[\s]*\[[\s]*miml[\s]*:[\s]*(init|final|sender|receiver)[\s]*\])?.*', item.strip('\n'), re.M | re.I)
+    parser = pycparser.CParser()
+    codeLines = [line for line in codeLines if not line.strip().startswith('#')]
+    print(''.join(codeLines))
+    parser.parse(''.join(codeLines))
+
+    for line in codeLines:
+        if re.search(r"\/\/[\s]*\[[\s]*miml[\s]*:[\s]*(init|final|sender|receiver)[\s]*\]", line):
+            print(line)
+            print(parser.parse(line))
+
+
+    for line in codeLines:
+        # TODO: warn if return isn't void?, multiline
+        #                      return type    funciton name (args )     ;      //        [     miml     :         miml section type             ]
+        match = re.match(r'[\s]*([\w]+[\s]+)+([\w_-]+)[\s]*\((.*)\)[\s]*;[\s]*(\/\/[\s]*\[[\s]*miml[\s]*:[\s]*(init|final|sender|receiver)[\s]*\])?.*', line, re.I)
         if match:
-            mimlType = match.group(6)
+            mimlType = match.group(5)
+            funcName = match.group(2)
+            args = match.group(3)
             if(mimlType == "init"):
-                output['init'] = str(match.group(3)) + "();"
-                foundInit += 1
+                output['init'] = funcName + "();"
                 continue
 
             if(mimlType == "final"):
-                output['final'] = str(match.group(3)) + "();"
-                foundFinal += 1
+                output['final'] = funcName + "();"
                 continue
 
-            content = match.group(4).split(',')
+            content = args.split(',')
             counter = 0
-
             argVals = []
             for item2 in content:
                 counter += 1
@@ -82,13 +88,10 @@ if __name__ == '__main__':
 
                     argVals.append([argName, argType.strip()])
 
-            funcName = str(match.group(3))
-            if (mimlType == "receivers"):
-                output['receiver'][funcName] = argVals
-                foundReceivers += 1
+            if (mimlType == "receiver"):
+                output['receivers'][funcName] = argVals
             elif (mimlType == "sender"):
                 output['senders'][funcName] = argVals
-                foundSenders += 1
 
     try:
         with open(outputfile, 'w') as fout:
@@ -96,9 +99,3 @@ if __name__ == '__main__':
     except IOError as e:
         print("I/O error({0}): Output Miml file --> {1}".format(e.errno, e.strerror))
         sys.exit(-1)
-
-    print("\n " + args.header + "  ->  " + outputfile)
-    print("======================================================")
-    print(" Init\tFinal\tSenders\t  Receivers                     ")
-    print("------------------------------------------------------")
-    print(" " + str(foundInit) + "\t" + str(foundFinal) + "\t" + str(foundSenders) + "\t  " + str(foundReceivers))
