@@ -1,101 +1,93 @@
 #!/usr/bin/python
 
 #     Assumptions:
-#         - init/final functions only detected with "initialize" and "finalize" in name
-#         - any non-init/final functions with "initialize" or "finalize" aren't included
-#         - only data types recognized are [const|unsigned] [int|char]
 #         - variable names not defined are replaced by ARG# variable name
 
 import sys, re, os
 import argparse
 import yaml
 import pycparser
+from pycparser import c_generator, c_ast
+import pycparserext
+from pycparserext.ext_c_parser import GnuCParser, AttributeSpecifier
+from pycparserext.ext_c_generator import GnuCGenerator
+
+def writemiml(outputfile, output):
+    try:
+        with open(outputfile, 'w') as fout:
+            yaml.dump(output, fout, explicit_start=True)
+    except IOError as e:
+        print("I/O error({0}): Output Miml file --> {1}".format(e.errno, e.strerror))
+        sys.exit(-1)
+
+class MimlCollector(c_ast.NodeVisitor):
+    def __init__(self):
+        self.miml_funcs=[]
+
+    def get_args(self, paramlist):
+        args = []
+        for node in paramlist.params:
+            pointers = []
+            while isinstance(node.type, c_ast.PtrDecl):
+                pointers += ['*']
+                node = node.type
+            args += [[' '.join(node.type.type.names + pointers)]]
+            if node.type.declname:
+                args[-1].append(node.type.declname)
+        return args
+
+    def visit_Decl(self, node):
+        for n in node.funcspec:
+            if isinstance(n, AttributeSpecifier):
+                if isinstance(n.exprlist.exprs[0], c_ast.FuncCall):
+                    if n.exprlist.exprs[0].name.name == 'miml':
+                        args = self.get_args(node.type.args)
+                        mimltype = n.exprlist.exprs[0].args.exprs[0].name
+                        self.miml_funcs += [{'name':node.name,
+                                             'file': node.coord.file,
+                                             'type': mimltype,
+                                             'args':args
+                                           }]
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('header', help='C header to convert to a MIML module')
-    argparser.add_argument('modulename', nargs='?', help='Name of the MIML module file. Defaults to Header name')
+    argparser.add_argument('cpp', help='Flags to pass to the C preprocessor')
     args = argparser.parse_args()
-
     if not args.header.endswith('.h'):
         print("Error: Input file not a .h file.")
         sys.exit(-1)
-    basename = os.path.basename(args.header)[:-2]  # strip .h
 
+    cpp_args = args.cpp.split() + [r'-DMIML_INIT=__attribute__((miml(init)))',
+                r'-DMIML_FINAL=__attribute__((miml(final)))',
+                r'-DMIML_SENDER=__attribute__((miml(sender)))',
+                r'-DMIML_RECEIVER=__attribute__((miml(receiver)))'
+               ]
+
+    ast = pycparser.parse_file(args.header, use_cpp=True, cpp_args=cpp_args, parser=GnuCParser())
+    dv = MimlCollector()
+    dv.visit(ast)
+
+    # TODO: warn if return isn't right for the type
+
+    basename = os.path.basename(args.header)[:-2]  # strip .h, leading path
     header = basename + '.h'
     objfile = basename + '.o'
-
-    if not args.modulename:
-        outputfile = basename + '.miml'
-    elif args.modulename.endswith('.miml'):
-        outputfile = args.modulename
-    else:
-        print("Error: Output file not a .miml file.")
-        sys.exit(-1)
-
-    try:
-        with open(args.header, 'r') as f:
-            codeLines = f.readlines()
-    except IOError as e:
-        print("I/O error({0}): Input header file --> {1}".format(e.errno, e.strerror))
-        sys.exit(-1)
+    outputfile = basename + '.miml'
 
     output = {'include': header, 'object': objfile, 'senders': {}, 'receivers': {}}
+    for func in dv.miml_funcs:
+        if func['file'] != args.header:
+            continue
 
-    def xstr(s):
-        if s is None:
-            return ''
-        return str(s)
+        if func['type'] == 'init':
+            output['init'] = func['name']
+        elif func['type'] == "final":
+            output['final'] = func['name']
+        elif func['type'] == 'receiver':
+            output['receivers'][func['name']] = func['args']
+        elif func['type'] == 'sender':
+            output['senders'][func['name']] = func['args']
 
-    parser = pycparser.CParser()
-    codeLines = [line for line in codeLines if not line.strip().startswith('#')]
-    print(''.join(codeLines))
-    parser.parse(''.join(codeLines))
+    writemiml(outputfile, output)
 
-    for line in codeLines:
-        if re.search(r"\/\/[\s]*\[[\s]*miml[\s]*:[\s]*(init|final|sender|receiver)[\s]*\]", line):
-            print(line)
-            print(parser.parse(line))
-
-
-    for line in codeLines:
-        # TODO: warn if return isn't void?, multiline
-        #                      return type    funciton name (args )     ;      //        [     miml     :         miml section type             ]
-        match = re.match(r'[\s]*([\w]+[\s]+)+([\w_-]+)[\s]*\((.*)\)[\s]*;[\s]*(\/\/[\s]*\[[\s]*miml[\s]*:[\s]*(init|final|sender|receiver)[\s]*\])?.*', line, re.I)
-        if match:
-            mimlType = match.group(5)
-            funcName = match.group(2)
-            args = match.group(3)
-            if(mimlType == "init"):
-                output['init'] = funcName + "();"
-                continue
-
-            if(mimlType == "final"):
-                output['final'] = funcName + "();"
-                continue
-
-            content = args.split(',')
-            counter = 0
-            argVals = []
-            for item2 in content:
-                counter += 1
-                match2 = re.match(r'[\s]*((const|unsigned)[\s]+)?(.*)[\s]*(\*)?([\s]*([\w_-]+)[\s]*)?', item2, re.M | re.I)
-                if match2:
-                    argType = xstr(match2.group(1)) + xstr(match2.group(3)) + xstr(match2.group(4))
-                    argName = match2.group(6)
-                    if argName is None:
-                        argName = "ARG" + str(counter)
-
-                    argVals.append([argName, argType.strip()])
-
-            if (mimlType == "receiver"):
-                output['receivers'][funcName] = argVals
-            elif (mimlType == "sender"):
-                output['senders'][funcName] = argVals
-
-    try:
-        with open(outputfile, 'w') as fout:
-            yaml.dump(output, fout)
-    except IOError as e:
-        print("I/O error({0}): Output Miml file --> {1}".format(e.errno, e.strerror))
-        sys.exit(-1)
