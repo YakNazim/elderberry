@@ -358,27 +358,21 @@ class Validate(ParseHandlers):
 
     def includes(self, data):
         # handles include files.
-        p = self.parser
-        e = p.errors
         if not re.match(r"\w+\.h", data):
-            e.new_error("Illegal header file format: " + data + " in " + '/'.join(p.path))
+            self.parser.errors.new_error("Illegal header file format: " + data)
         return True
 
     def objects(self, data):
         # handles object files for the make file, needs to add 1 row to make file so stages
         # into (self.objects), purge makes output.
-        p = self.parser
-        e = p.errors
         if not re.match(r"(/|\w)+\.o", data):
-            e.new_error("Illegal object file format: " + data + " in " + '/'.join(p.path))
+            self.parser.errors.new_error("Illegal object file format: " + data)
         return True
 
     def inits(self, data):
         # validates a modules initialize functions, output is generated via the module handler.
-        p = self.parser
-        e = p.errors
-        if not re.match(r"\w+\([^)]*\);", data):
-            e.new_error("Illegal initialize function: " + data + " in " + '/'.join(p.path))
+        if not re.match(r"\w+", data):
+            self.parser.errors.new_error("Illegal initialize function: " + data)
         return True
 
     def init_final(self, data):
@@ -390,23 +384,19 @@ class Validate(ParseHandlers):
 
     def finals(self, data):
         # validates a modules finalize functions, output is generated via the module handler.
-        p = self.parser
-        e = p.errors
-        if not re.match(r"\w+\([^)]*\);", data):
-            e.new_error("Illegal finalize function: " + data + " in " + '/'.join(p.path))
+        if not re.match(r"\w+", data):
+            self.parser.errors.new_error("Illegal finalize function: " + data)
         return True
 
     def params(self, data):
         # Validate sender and receiver parameters, checks that each parameter has 2 elements
         # and that the second could be a C type
-        p = self.parser
-        e = p.errors
         for param in data:
             if not len(param) == 2:
-                e.new_error("Illegal parameter definition: " + str(param) + " in " + '/'.join(p.path))
+                self.parser.errors.new_error("Illegal parameter definition: " + str(param))
             datatype = re.match(r"(?:const\s)?((?:unsigned\s)?\w+)(?:\s?[*&])?", param[1]).group(1)  # FIXME: This doesn't look like it hits all the types
             if not datatype:
-                e.new_error("Illegal parameter type: " + str(param[1]) + " in " + '/'.join(p.path))
+                self.parser.errors.new_error("Illegal parameter type: " + str(param[1]))
         return True
 
 class Parse(ParseHandlers):
@@ -458,18 +448,14 @@ class Parse(ParseHandlers):
         p = self.parser
         o = p.output
         finals = []
-        o.append("code", 10, "int modules_initialize(struct ev_loop * loop) {")
+        o.append("code", 10, "void modules_initialize(struct ev_loop * loop) {")
         for source in data:
             token = source[0]
             if 'init' in p.master['modules'][token]:
-                o.append("code", 10, "    " + p.master['modules'][token]['init'])
+                o.append("code", 10, "    " + p.master['modules'][token]['init'] + "(loop);")
             if "final" in p.master['modules'][token]:
-                finals.append(p.master['modules'][token]['final'])
-        o.append("code", 10, "    return 1;\n}")
-        o.append("code", 15, "void modules_finalize(struct ev_loop * loop) {")
-        while len(finals) > 0:
-            o.append("code", 15, "    " + finals.pop())
-        o.append("code", 15, "}")
+                o.append("code", 10, "    atexit("+p.master['modules'][token]['final']+');')
+        o.append("code", 10, "}")
         return True
 
     def main(self, data):
@@ -492,8 +478,6 @@ int main(int argc, char *argv[]){
     //todo: boilerplate
     //todo: ev_version check, ev_backends check
 
-    int retval = EXIT_SUCCESS;
-
     struct ev_loop * loop;
     loop = ev_default_loop(0);
     if(!loop){
@@ -505,15 +489,11 @@ int main(int argc, char *argv[]){
     ev_signal_init(&stop, stop_cb, SIGINT);
     ev_signal_start(loop, &stop);
     //todo: argc, argv passed to initialize. Use argp?
-    if(modules_initialize(loop)){
-        fprintf(stderr, "Fatal: module initialization failure\\n");
-        retval = EXIT_FAILURE;
-    }else{
-        ev_run (loop, 0);
-    }
-    modules_finalize(loop);
+    modules_initialize(loop);
+    ev_run (loop, 0);
 
-    return retval;
+
+    return EXIT_SUCCESS;
 }""")
 
         return True
@@ -521,9 +501,9 @@ int main(int argc, char *argv[]){
 
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
-    argparser.add_argument('-c', help='c files?', action='store_true')
-    argparser.add_argument('-m', help='makefiles?', action='store_true')
-    argparser.add_argument('-b', help='headers?', action='store_true')
+    argparser.add_argument('-c', help='Generate C files', action='store_true')
+    argparser.add_argument('-m', help='Generate Makefiles', action='store_true')
+    argparser.add_argument('-b', help='Do something with headers', action='store_true')
     argparser.add_argument('miml', help='Main miml filename')
     args = argparser.parse_args()
 
