@@ -15,56 +15,32 @@
 import sys
 import argparse
 import re
+import logging
 import yaml
 import copy
 from os import path, access, R_OK
 import fnmatch
 from collections import defaultdict
 
-class ErrorLogger:
-    # Log errors or warnings here, then check periodically.
-    # Code Generator uses no warnings, but they can be fun for debugging.
-    # The check method exits if errors exist, but just prints out warnings and keeps going.
-    def __init__(self):
-        self.errors = []
-        self.warnings = []
 
-    def new_error(self, message):
-        self.errors.append(message)
+class ErrorCounter(logging.Filter):
+    warnings = 0
+    errors = 0
 
-    def new_warning(self, message):
-        self.warnings.append(message)
+    def filter(self, record):
+        if record.levelname == 'WARNING':
+            self.warnings += 1
+        if record.levelname == 'ERROR':
+            self.errors += 1
+        return True
 
-    def append_error(self, message):
-        if len(self.errors) > 0:  # append to empty list just adds new error.
-            message = self.errors.pop() + message
-        self.errors.append(message)
+    def reset(self):
+        self.warnings = 0
+        self.errors = 0
 
-    def append_warnings(self, message):
-        if len(self.warnings) > 0:  # append to empty list just adds new error.
-            message = self.warnings.pop() + message
-        self.warnings.append(message)
-
-    def has_errors(self):
-        if len(self.errors) > 0:
-            return True
-        return False
-
-    def has_warnings(self):
-        if len(self.warnings) > 0:
-            return True
-        return False
-
-    def check(self):
-        if self.has_warnings():
-            print (len(self.warnings), " warning(s) encountered!")
-            for warning in self.warnings:
-                print (warning)
-        if self.has_errors():
-            print (len(self.errors), " error(s) encountered!")
-            for error in self.errors:
-                print (error)
-            sys.exit(0)
+def errorExit(msg, *args, **kwargs):
+    logging.error(msg, args, kwargs)
+    sys.exit(1)
 
 class OutputGenerator:
     # What we want here is:
@@ -105,7 +81,6 @@ class OutputGenerator:
 class Parser:
 
     def __init__(self, config, mainmiml, modeflages):
-        self.errors = ErrorLogger()
         # declare modes_flags_files
         modes_flags_files = {'code': {'run': modeflags['c'], 'file': None},
                              'make': {'run': modeflags['m'], 'file': None},
@@ -113,21 +88,23 @@ class Parser:
 
         # Read config file.
         self.miml_file = mainmiml
-
         try:
             with open(config, 'r') as conf:
                 self.config = yaml.load(conf)
-        except OSError as e:
-            self.errors.new_error("Error opening config file: " + str(e))
+        except IOError as e:
+            errorExit("Opening config: " + str(e))
         except yaml.YAMLError as e:
-            self.errors.new_error("YAML parsing error: " + str(e))
-        self.errors.check()
+            errorExit("YAML parsing error in config: " + str(e))
+        logging.debug("config: " + str(self.config))
 
         # get filename configuration data and remove from config, this makes
         # it so only handler data is left. Better for handlers!
         modes_flags_files['code']['file'] = self.config.pop('code_filename')
         modes_flags_files['header']['file'] = self.config.pop('header_filename')
         modes_flags_files['make']['file'] = self.config.pop('make_filename')
+
+        self.errCount = ErrorCounter()
+        logging.getLogger('').addFilter(self.errCount)
 
         # Setup a ParserHandlers objects
         # Since we have multiple MIML files now we need phases for processing.
@@ -153,11 +130,10 @@ class Parser:
         try:
             with open(self.miml_file, 'r') as mainmiml:
                 self.master = yaml.load(mainmiml)
-        except OSError as e:
-            self.errors.new_error("Error opening main MIML file: " + str(e))
+        except IOError as e:
+            errorExit("Error opening main MIML file: " + str(e))
         except yaml.YAMLError as e:
-            self.errors.new_error("YAML parsing error: " + str(e))
-        self.errors.check()
+            errorExit("YAML parsing error: " + str(e))
 
         # Do Expand, Validate, Parse
         # Initialize the stage buffers
@@ -178,10 +154,16 @@ class Parser:
 
     def transition(self, handler):
         state_name = handler.__class__.__name__
-        # check for errors thrown during previous phase.
-        self.errors.check()
+        # check for warnings and errors thrown during previous phase.
+        if self.errCount.warnings > 0:
+            print(self.errCount.warnings, " warning(s) encountered during ", state_name, "!")
+        if self.errCount.errors > 0:
+            print(self.errCount.errors, " error(s) encountered during ", state_name, "!")
+            sys.exit(1)
+        self.errCount.reset()
+
         if not self.unhandled == {}:
-            self.errors.new_error("Unhandled MIML content at end of " +
+            errorExit("Unhandled MIML content at end of " +
                         state_name + " state!\n" + yaml.dump(self.unhandled))
 
         self.master = self.buffer
@@ -190,12 +172,8 @@ class Parser:
 
         self.handler_functions = handler
 
-        # todo: logger.debug
-        # print (state_name + " This:")
-        # print (yaml.dump(self.master))
-
-        # Check for errors thrown during transition
-        self.errors.check()
+        logging.debug(state_name + " This:")
+        logging.debug(yaml.dump(self.master))
 
     def crawl(self, data, path=['']):
         # Recursive function "Weee!"
@@ -226,7 +204,7 @@ class Parser:
                     return_value = return_value or getattr(self.handler_functions, key)(data)
                 else:
                     # type of data is not same as what was declared in cg.conf, so error.
-                    self.errors.new_error("Handler type mismatch. " + key + " expects " + self.config[key]['type'] + ", received " + type(data).__name__)
+                    logging.error("Handler type mismatch. " + key + " expects " + self.config[key]['type'] + ", received " + type(data).__name__)
 
         return return_value
 
@@ -286,7 +264,6 @@ class ParseHandlers:
 class Expand(ParseHandlers):
     def sources(self, data):
         p = self.parser
-        e = p.errors
         # Pull in external file data, place in buffer
         del(p.unhandled['sources'])
         p.buffer['modules'] = {}
@@ -295,10 +272,10 @@ class Expand(ParseHandlers):
             try:
                 with open(source[1], 'r') as module:
                     p.buffer['modules'][source[0]] = yaml.load(module)
-            except OSError as e:
-                e.new_error("Error opening module MIML file: " + str(e))
+            except IOError as e:
+                logging.error("Error opening module MIML file: " + str(e))
             except yaml.YAMLError as e:
-                e.new_error("YAML parsing error: " + str(e))
+                logging.error("YAML parsing error: " + str(e))
 
         return True
 
@@ -311,33 +288,32 @@ class Expand(ParseHandlers):
 class Validate(ParseHandlers):
     def messages(self, data):
         p = self.parser
-        e = p.errors
         for message in data.keys():
             sender = message.split('.')
             if not len(sender) == 2:
-                e.new_error("Illegal Sender syntax: " + message)
+                logging.error("Illegal Sender syntax: " + message)
             elif not sender[0] in p.master['modules']:
-                e.new_error("Sending source " + sender[0] + " not loaded as module.")
+                logging.error("Sending source " + sender[0] + " not loaded as module.")
             elif not sender[1] in p.master['modules'][sender[0]]['senders']:
-                e.new_error("Sending message " + sender[1] + " not defined as sender for " + sender[0])
+                logging.error("Sending message " + sender[1] + " not defined as sender for " + sender[0])
             else:
                 sender_params = p.master['modules'][sender[0]]['senders'][sender[1]]
                 for rec in data[message]:
                     receiver = rec.split('.')
                     if not len(sender) == 2:
-                        e.new_error("Illegal Receiver syntax: " + rec + " for message " + message)
+                        logging.error("Illegal Receiver syntax: " + rec + " for message " + message)
                     elif not receiver[0] in p.master['modules']:
-                        e.new_error("Receiver: " + receiver[0] + " not loaded as module.")
+                        logging.error("Receiver: " + receiver[0] + " not loaded as module.")
                     elif not receiver[1] in p.master['modules'][receiver[0]]['receivers']:
-                        e.new_error("Receiver function " + receiver[1] + " not defined as receiver for " + receiver[0])
+                        logging.error("Receiver function " + receiver[1] + " not defined as receiver for " + receiver[0])
                     elif not len(sender_params) == len(p.master['modules'][receiver[0]]['receivers'][receiver[1]]):
-                        e.new_error("Message " + str(sender) + " cannot send to receiver " + str(rec) +
+                        logging.error("Message " + str(sender) + " cannot send to receiver " + str(rec) +
                         ". Number of arguments must be the same in both functions.")
                     else:
                         pos = 0
                         for param in sender_params:
                             if not param[1] == p.master['modules'][receiver[0]]['receivers'][receiver[1]][pos][1]:
-                                e.new_error("Message " + message + " cannot send to receiver " +
+                                logging.error("Message " + message + " cannot send to receiver " +
                                 rec + ". Type mismatch on argument " + str(pos + 1))
                             pos += 1
         del(p.unhandled['messages'])
@@ -346,11 +322,10 @@ class Validate(ParseHandlers):
 
     def modules(self, modules):
         p = self.parser
-        e = p.errors
         for name, body in modules.items():
             for key in body:
                 if not key in ('include', 'object', 'init', 'final', 'senders', 'receivers'):
-                    e.new_error("Module: " + name + " contains illegal component: " + key)
+                    logging.error("Module: " + name + " contains illegal component: " + key)
         del(p.unhandled['modules'])
         p.buffer['modules'] = modules
         # Must return False or other module matches will not happen.
@@ -359,20 +334,20 @@ class Validate(ParseHandlers):
     def includes(self, data):
         # handles include files.
         if not re.match(r"\w+\.h", data):
-            self.parser.errors.new_error("Illegal header file format: " + data)
+            logging.error("Illegal header file format: " + data)
         return True
 
     def objects(self, data):
         # handles object files for the make file, needs to add 1 row to make file so stages
         # into (self.objects), purge makes output.
         if not re.match(r"(/|\w)+\.o", data):
-            self.parser.errors.new_error("Illegal object file format: " + data)
+            logging.error("Illegal object file format: " + data)
         return True
 
     def inits(self, data):
         # validates a modules initialize functions, output is generated via the module handler.
         if not re.match(r"\w+", data):
-            self.parser.errors.new_error("Illegal initialize function: " + data)
+            logging.error("Illegal initialize function: " + data)
         return True
 
     def init_final(self, data):
@@ -385,7 +360,7 @@ class Validate(ParseHandlers):
     def finals(self, data):
         # validates a modules finalize functions, output is generated via the module handler.
         if not re.match(r"\w+", data):
-            self.parser.errors.new_error("Illegal finalize function: " + data)
+            logging.error("Illegal finalize function: " + data)
         return True
 
     def params(self, data):
@@ -393,10 +368,10 @@ class Validate(ParseHandlers):
         # and that the second could be a C type
         for param in data:
             if not len(param) == 2:
-                self.parser.errors.new_error("Illegal parameter definition: " + str(param))
+                logging.error("Illegal parameter definition: " + str(param))
             datatype = re.match(r"(?:const\s)?((?:unsigned\s)?\w+)(?:\s?[*&])?", param[1]).group(1)  # FIXME: This doesn't look like it hits all the types
             if not datatype:
-                self.parser.errors.new_error("Illegal parameter type: " + str(param[1]))
+                logging.error("Illegal parameter type: " + str(param[1]))
         return True
 
 class Parse(ParseHandlers):
@@ -504,8 +479,16 @@ if __name__ == '__main__':
     argparser.add_argument('-c', help='Generate C files', action='store_true')
     argparser.add_argument('-m', help='Generate Makefiles', action='store_true')
     argparser.add_argument('-b', help='Do something with headers', action='store_true')
+    argparser.add_argument('-v', help='Enable additional logging', action='count')
     argparser.add_argument('miml', help='Main miml filename')
     args = argparser.parse_args()
+
+    level = logging.WARNING
+    if args.v == 1:
+        level = logging.INFO
+    if args.v > 1:
+        level = logging.DEBUG
+    logging.basicConfig(format='%(levelname)s: %(message)s', level=level)
 
     modeflags = {}
     modeflags['c'] = args.c
