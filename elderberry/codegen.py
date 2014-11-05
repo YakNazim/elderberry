@@ -85,11 +85,12 @@ class Parser:
         # There is a 4th stage (not really a stage), purge. In which a ParserHandlers function is called to
         # commit last minute stuff to the OutputGenerator. For some output requirements it may be easier to
         # stage to a local ParserHandler structure in Parse, then stage later.
+        self.output = {}
+        for key, value in self.modenames.items():
+            self.output[key] = OutputGenerator(key, value, modeflags[key])
+
         self.handler_states = [Expand(self), Validate(self), Generate(self)]
         self.handler_functions = ParseHandlers(self)
-        self.output = {}
-        for key, value in self.modenames:
-            self.output[key] = OutputGenerator(key, value, modeflags[key])
 
     def parse(self, mainmiml):
         # top level 'public' function. Since we have external MIML docs we need to pull those in

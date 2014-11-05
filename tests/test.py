@@ -18,7 +18,7 @@ class TestCodeGen(unittest.TestCase):
 
     def test_emptyfiles(self):
         try:
-            codegen.Parser('tests/data/empty.conf', {'c':False, 'm':False, 'b':False})
+            codegen.Parser('tests/data/cg.conf', {'code':False, 'make':False, 'header':False})
         except SystemExit:
             pass
 
