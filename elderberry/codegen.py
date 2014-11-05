@@ -66,7 +66,7 @@ class Parser:
         # it so only handler data is left. Better for handlers!
         try:
             self.modenames = self.config.pop('filenames', {})
-            self.handler_paths = self.config.pop('handler_paths', {})
+            self.handler_paths = self.config.pop('handlers', {})
         except AttributeError:
             self.modenames={}
             self.handler_paths = {}
@@ -103,13 +103,14 @@ class Parser:
         except yaml.YAMLError as e:
             errorExit("YAML parsing error: " + str(e))
 
-        # Do Expand, Validate, Parse
+        # Do Expand, Validate, Generate
         # Initialize the stage buffers
         self.buffer = self.master
         self.unhandled = {}
         for handler in self.handler_states:
             self.transition(handler)
             self.crawl(self.master)
+            self.check(handler)
 
         # purge staged data. Our 4th state, kinda...
         self.handler_functions.purge()
@@ -118,7 +119,7 @@ class Parser:
         logging.debug(self.output.display())
         self.output.write_out()
 
-    def transition(self, handler):
+    def check(self, handler):
         state_name = handler.__class__.__name__
         # check for warnings and errors thrown during previous phase.
         if self.errCount.warnings > 0:
@@ -132,6 +133,11 @@ class Parser:
             errorExit("Unhandled MIML content at end of " +
                         state_name + " state!\n" + yaml.dump(self.unhandled))
 
+
+    def transition(self, handler):
+        state_name = handler.__class__.__name__
+        print("Now entering :", state_name)
+
         self.master = self.buffer
         self.unhandled = copy.copy(self.master)
         self.buffer = {}
@@ -142,6 +148,7 @@ class Parser:
         logging.debug(yaml.dump(self.master))
 
     def crawl(self, data, path=['']):
+        logging.debug(path)
         # Recursive function "Weee!"
         # Different structure walking for dict/list/scalar
         # path works as stack of directories (push/pop)
@@ -229,6 +236,7 @@ class Expand(ParseHandlers):
     def sources(self, data):
         p = self.parser
         # Pull in external file data, place in buffer
+        print("At sources")
         del(p.unhandled['sources'])
         p.buffer['modules'] = {}
         p.buffer['source_order'] = data
