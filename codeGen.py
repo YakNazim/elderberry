@@ -18,8 +18,8 @@ import re
 import logging
 import yaml
 import copy
-from os import path, access, R_OK
 import fnmatch
+from os import path, access, R_OK
 from collections import defaultdict
 
 
@@ -99,9 +99,17 @@ class Parser:
 
         # get filename configuration data and remove from config, this makes
         # it so only handler data is left. Better for handlers!
-        modes_flags_files['code']['file'] = self.config.pop('code_filename')
-        modes_flags_files['header']['file'] = self.config.pop('header_filename')
-        modes_flags_files['make']['file'] = self.config.pop('make_filename')
+        try:
+            if modes_flags_files['code']['run']:
+                modes_flags_files['code']['file'] = self.config.pop('code_filename')
+            if modes_flags_files['header']['run']:
+                modes_flags_files['header']['file'] = self.config.pop('header_filename')
+            if modes_flags_files['make']['run']:
+                modes_flags_files['make']['file'] = self.config.pop('make_filename')
+        except AttributeError:
+            errorExit("Config is empty")
+        except KeyError as e:
+            errorExit("Required config field missing: " + str(e))
 
         self.errCount = ErrorCounter()
         logging.getLogger('').addFilter(self.errCount)
@@ -117,11 +125,8 @@ class Parser:
         # There is a 4th stage (not really a stage), purge. In which a ParserHandlers function is called to
         # commit last minute stuff to the OutputGenerator. For some output requirements it may be easier to
         # stage to a local ParserHandler structure in Parse, then stage later.
-        self.handler_states = [Expand(self),
-                               Validate(self),
-                               Parse(self)]
+        self.handler_states = [Expand(self), Validate(self), Parse(self)]
         self.handler_functions = ParseHandlers(self)
-
         self.output = OutputGenerator(modes_flags_files)
 
     def parse(self):
@@ -480,6 +485,7 @@ if __name__ == '__main__':
     argparser.add_argument('-m', help='Generate Makefiles', action='store_true')
     argparser.add_argument('-b', help='Do something with headers', action='store_true')
     argparser.add_argument('-v', help='Enable additional logging', action='count')
+    argparser.add_argument('-g', help='Code generator config filename')
     argparser.add_argument('miml', help='Main miml filename')
     args = argparser.parse_args()
 
@@ -494,5 +500,8 @@ if __name__ == '__main__':
     modeflags['c'] = args.c
     modeflags['m'] = args.m
     modeflags['b'] = args.b
-    parser = Parser('cg.conf', args.miml, modeflags)
+
+    config = args.g if args.g else 'cg.conf'
+
+    parser = Parser(config, args.miml, modeflags)
     parser.parse()
