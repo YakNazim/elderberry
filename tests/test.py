@@ -16,11 +16,16 @@ class TestCodeGen(unittest.TestCase):
     def setUp(self):
         pass
 
-    def test_emptyfiles(self):
-        try:
-            codegen.Parser('tests/data/cg.conf', {'code':False, 'make':False, 'header':False})
-        except SystemExit:
-            pass
+#    def test_emptyfiles(self):
+#        codegen.Parser('tests/data/empty.conf', {})
+
+    def test_av3config(self):
+        codegen.Parser('tests/data/cg.conf', {'code':False, 'make':False, 'header':False})
+
+    def test_av3(self):
+        p = codegen.Parser('tests/data/cg.conf', {'code':False, 'make':False, 'header':False})
+        p.parse('tests/data/main.miml')
+
 
 if __name__ == '__main__':
     unittest.main()
