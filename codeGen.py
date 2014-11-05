@@ -12,13 +12,14 @@
 # 	Josef Mihalits
 # 	Clark Wachsmuth
 
-import sys
-import argparse
-import re
 import logging
+import argparse
+import sys
+import re
 import yaml
 import copy
 import fnmatch
+import logging
 from os import path, access, R_OK
 from collections import defaultdict
 
@@ -39,55 +40,36 @@ class ErrorCounter(logging.Filter):
         self.errors = 0
 
 def errorExit(msg, *args, **kwargs):
-    logging.error(msg, args, kwargs)
+    logging.error(msg, *args, **kwargs)
     sys.exit(1)
 
 class OutputGenerator:
-    # What we want here is:
-    #    RootDictionary { ModeDictionary { LevelDictionary { OutputList [] }}}
-    #
-    # So OutputGen{Code}{1}{Include File1, Include File2}
-    # or OutputGen{Header1}{1}{Function PrototypeA, Function PrototypeB}
-    #
-    # This way different Handlers can be invoked for different purposes
-    #   and order their output as they wish.
-    # The constructor strucure mode_flages_files should coincide with the modes allowed.
-    # So if you add to one add to the other. Same mode token, its used across them in the boolean run check!
 
-    def __init__(self, mode_flags_files):
-        self.output = defaultdict(lambda: defaultdict(list))
-        self.mode_flags_files = mode_flags_files
+    def __init__(self, modename, filename='', modeflag=False):
+        self.output = defaultdict(str)
+        self.filename = filename
+        self.name = modename
+        self.use = modeflag
 
-    def append(self, mode, level, data):
-        self.output[mode][level].append(data)
+    def append(self, level, data):
+        self.output[level] += data + '\n'
 
     def display(self):
-        for mode in self.output.keys():
-            if self.mode_flags_files[mode]['run'] == True:
-                print (mode + ": " + self.mode_flags_files[mode]['file'])
-                for level in sorted(self.output[mode].keys()):
-                    for message in self.output[mode][level]:
-                        print (mode, "->", level, "->", message)
-            print ("\n")  # separate modes
+        if self.use:
+            print(self.name, ": ", filename)
+            for level in sorted(self.output):
+                print (self.name, "->", level, "->", self.output[level])
 
     def write_out(self):
-        for mode in self.output.keys():
-            if self.mode_flags_files[mode]['run'] == True:
-                f = open(self.mode_flags_files[mode]['file'], "w")
-                for level in sorted(self.output[mode].keys()):
-                    for message in self.output[mode][level]:
-                        f.write(message + '\n')
+        if self.use:
+            with open(self.filename, "w") as f:
+                for level in sorted(self.output):
+                    f.write(self.output[level])
 
 class Parser:
 
-    def __init__(self, config, mainmiml, modeflages):
-        # declare modes_flags_files
-        modes_flags_files = {'code': {'run': modeflags['c'], 'file': None},
-                             'make': {'run': modeflags['m'], 'file': None},
-                             'header': {'run': modeflags['b'], 'file': None}}
-
+    def __init__(self, config, modeflags):
         # Read config file.
-        self.miml_file = mainmiml
         try:
             with open(config, 'r') as conf:
                 self.config = yaml.load(conf)
@@ -95,21 +77,15 @@ class Parser:
             errorExit("Opening config: " + str(e))
         except yaml.YAMLError as e:
             errorExit("YAML parsing error in config: " + str(e))
-        logging.debug("config: " + str(self.config))
 
         # get filename configuration data and remove from config, this makes
         # it so only handler data is left. Better for handlers!
         try:
-            if modes_flags_files['code']['run']:
-                modes_flags_files['code']['file'] = self.config.pop('code_filename')
-            if modes_flags_files['header']['run']:
-                modes_flags_files['header']['file'] = self.config.pop('header_filename')
-            if modes_flags_files['make']['run']:
-                modes_flags_files['make']['file'] = self.config.pop('make_filename')
+            self.modenames = self.config.pop('filenames', {})
+            self.handler_paths = self.config.pop('handler_paths', {})
         except AttributeError:
-            errorExit("Config is empty")
-        except KeyError as e:
-            errorExit("Required config field missing: " + str(e))
+            self.modenames={}
+            self.handler_paths = {}
 
         self.errCount = ErrorCounter()
         logging.getLogger('').addFilter(self.errCount)
@@ -120,21 +96,23 @@ class Parser:
         #   to pull in that external data and place it in the parse tree.
         # Validation allows handler functions the opportunity to examine other data in the tree
         #   to ensure it is ready for use, including data pulled in by other functions.
-        # Parsing is where the actual parsing work happens, where handler functions generate output.
+        # Generate is where the actual parsing work happens, where handler functions generate output.
         # Actual output writing happens when all these phases are complete and is not part of "parsing".
         # There is a 4th stage (not really a stage), purge. In which a ParserHandlers function is called to
         # commit last minute stuff to the OutputGenerator. For some output requirements it may be easier to
         # stage to a local ParserHandler structure in Parse, then stage later.
-        self.handler_states = [Expand(self), Validate(self), Parse(self)]
+        self.handler_states = [Expand(self), Validate(self), Generate(self)]
         self.handler_functions = ParseHandlers(self)
-        self.output = OutputGenerator(modes_flags_files)
+        self.output = {}
+        for key, value in self.modenames:
+            self.output[key] = OutputGenerator(key, value, modeflags[key])
 
-    def parse(self):
+    def parse(self, mainmiml):
         # top level 'public' function. Since we have external MIML docs we need to pull those in
         # before we crawl, so order of processing matters even though order of MIML elements does not.
         try:
-            with open(self.miml_file, 'r') as mainmiml:
-                self.master = yaml.load(mainmiml)
+            with open(mainmiml, 'r') as miml:
+                self.master = yaml.load(miml)
         except IOError as e:
             errorExit("Error opening main MIML file: " + str(e))
         except yaml.YAMLError as e:
@@ -150,11 +128,9 @@ class Parser:
 
         # purge staged data. Our 4th state, kinda...
         self.handler_functions.purge()
-        # Output
-        # Let's you see stuff, uncomment when writing MIML extensions and trying to
-        # figure out where to insert content in OutputGenerator.
-        # self.output.display()
-        # Make files!!!
+
+        # Make Output files!!!
+        logging.debug(self.output.display())
         self.output.write_out()
 
     def transition(self, handler):
@@ -200,16 +176,12 @@ class Parser:
         # This method returns True if a handler decides no other parsing is required for
         # the data it handles, for the mode it is in.
         return_value = False
-        for key, value in self.config.items():
-            # match current location to a handler path
+        for key, value in self.handler_paths.items():
             if fnmatch.fnmatchcase('/'.join(path), value['path']):
-                # verify data type is correct
-                if type(data).__name__ == self.config[key]['type']:
-                    # call hander function 'key', in ParserHandlers, passing data
+                if type(data).__name__ == self.handler_paths[key]['type']:
                     return_value = return_value or getattr(self.handler_functions, key)(data)
                 else:
-                    # type of data is not same as what was declared in cg.conf, so error.
-                    logging.error("Handler type mismatch. " + key + " expects " + self.config[key]['type'] + ", received " + type(data).__name__)
+                    logging.error("Handler type mismatch. {} expects {}, received {}".format(key, self.handler_paths[key]['type'], type(data).__name__))
 
         return return_value
 
@@ -217,17 +189,19 @@ class ParseHandlers:
 
     def __init__(self, parser):
         self.parser = parser
+        self.code = self.parser.output['code']
+        self.make = self.parser.output['make']
+        self.header = self.parser.output['header']
 
     def purge(self):
         # Required function, not part of config-based handlers
         # Called after Parsing phase, allows handlers to stage data and then commit to OutputGenerator after parse stage.
         # or allows single time setup data, like fcfutils.h include, or carriage returns for pretty output.
-        o = self.parser.output
-        o.append("code", 6, "\n")
-        o.append("code", 11, "\n")
-        o.append("code", 16, "\n")
-        o.append("code", 101, "\n")
-        o.append("make", 6, "\n")
+        self.code.append(6, "\n")
+        self.code.append(11, "\n")
+        self.code.append(16, "\n")
+        self.code.append(101, "\n")
+        self.make.append(6, "\n")
 
     def sources(self, data):
         return True  # Nothing responds to data under here, left in so includes/final can figure out what order to stage data.
@@ -379,22 +353,19 @@ class Validate(ParseHandlers):
                 logging.error("Illegal parameter type: " + str(param[1]))
         return True
 
-class Parse(ParseHandlers):
+class Generate(ParseHandlers):
 
     def sources(self, data):
         p = self.parser
-        o = p.output
-
         module_miml = []
         for source in data:
             module_miml.append(source[1])
-        o.append("make", 10, o.mode_flags_files['code']['file'] + " " + o.mode_flags_files['header']['file'] + ": " + p.miml_file + " " + ' '.join(module_miml))
-        o.append("make", 10, "\t./codeGen.py -ch " + p.miml_file)
+        self.make.append(10, self.code.filename + " " + self.header.filename + ": " + p.miml_file + " " + ' '.join(module_miml))
+        self.make.append(10, "\t./codeGen.py -ch " + p.miml_file)
         return True  # Nothing responds to data under here, left in so includes/final can figure out what order to stage data.
 
     def messages(self, data):
         p = self.parser
-        o = p.output
         for message in data.keys():  # for each message
             (src, func) = message.split('.')
             args = []
@@ -404,43 +375,39 @@ class Parse(ParseHandlers):
                 args.append(caller_param[1] + " " + caller_param[0])
                 params.append(caller_param[0])
                 types.append(caller_param[1])
-            o.append("header", 10, "void " + func + "(" + ', '.join(types) + ');')
-            o.append("code", 20, "void " + func + "(" + ', '.join(args) + ') {')
+            self.header.append(10, "void " + func + "(" + ', '.join(types) + ');')
+            self.code.append(20, "void " + func + "(" + ', '.join(args) + ') {')
             for receivers in data[message]:  # for each receiver
                 (rsrc, rfunc) = receivers.split('.')
-                o.append("code", 20, "    " + rfunc + "(" + ', '.join(params) + ');')
-            o.append("code", 20, "}\n")
+                self.code.append(20, "    " + rfunc + "(" + ', '.join(params) + ');')
+            self.code.append(20, "}\n")
         return True
 
     def includes(self, data):
         # handles include files.
-        p = self.parser
-        o = p.output
-        o.append("code", 5, "#include \"" + data + "\"")
+        self.code.append(5, "#include \"" + data + "\"")
         return True
 
     def objects(self, data):
         # handles object files for the make file. Gives each object its own row
-        self.parser.output.append("make", 5, "OBJECTS += " + data)
+        self.make.append(5, "OBJECTS += " + data)
         return True
 
     def init_final(self, data):
         p = self.parser
-        o = p.output
         finals = []
-        o.append("code", 10, "void modules_initialize(struct ev_loop * loop) {")
+        self.code.append(10, "void modules_initialize(struct ev_loop * loop) {")
         for source in data:
             token = source[0]
             if 'init' in p.master['modules'][token]:
-                o.append("code", 10, "    " + p.master['modules'][token]['init'] + "(loop);")
+                self.code.append(10, "    " + p.master['modules'][token]['init'] + "(loop);")
             if "final" in p.master['modules'][token]:
-                o.append("code", 10, "    atexit("+p.master['modules'][token]['final']+');')
-        o.append("code", 10, "}")
+                self.code.append(10, "    atexit("+p.master['modules'][token]['final']+');')
+        self.code.append(10, "}")
         return True
 
     def main(self, data):
-        o = self.parser.output
-        o.append("code", 5, """
+        self.code.append(5, """
 #include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
@@ -448,7 +415,7 @@ class Parse(ParseHandlers):
 """)
 
         # FIXME: escaped newlines
-        o.append("code", 100, """
+        self.code.append(100, """
 static void stop_cb(struct ev_loop *loop, ev_signal *w, int revents){
     printf("Quitting\\n");
     ev_break(loop, EVBREAK_ALL);
@@ -478,7 +445,6 @@ int main(int argc, char *argv[]){
 
         return True
 
-
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('-c', help='Generate C files', action='store_true')
@@ -497,11 +463,11 @@ if __name__ == '__main__':
     logging.basicConfig(format='%(levelname)s: %(message)s', level=level)
 
     modeflags = {}
-    modeflags['c'] = args.c
-    modeflags['m'] = args.m
-    modeflags['b'] = args.b
+    modeflags['code'] = args.c
+    modeflags['make'] = args.m
+    modeflags['header'] = args.b
 
     config = args.g if args.g else 'cg.conf'
 
-    parser = Parser(config, args.miml, modeflags)
-    parser.parse()
+    parser = Parser(config, modeflags)
+    parser.parse(args.miml)
