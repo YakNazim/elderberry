@@ -1,9 +1,9 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 #     Assumptions:
 #         - variable names not defined are replaced by ARG# variable name
 
-import sys, re, os
+import sys
 import argparse
 import yaml
 import pycparser
@@ -12,13 +12,37 @@ import pycparserext
 from pycparserext.ext_c_parser import GnuCParser, AttributeSpecifier
 from pycparserext.ext_c_generator import GnuCGenerator
 
-def writemiml(outputfile, output):
-    try:
-        with open(outputfile, 'w') as fout:
-            yaml.dump(output, fout, explicit_start=True)
-    except IOError as e:
-        print("I/O error({0}): Output Miml file --> {1}".format(e.errno, e.strerror))
-        sys.exit(-1)
+
+class WriteMiml:
+
+    def __init__(self, funcs, basename):
+        header = basename + '.h'
+        objfile = basename + '.o'
+        self.outputfile = basename + '.miml'
+
+        output = {'include': header, 'object': objfile, 'senders': {}, 'receivers': {}}
+        for func in funcs:
+            if func['file'] != args.header:
+                continue
+
+            if func['type'] == 'init':
+                output['init'] = func['name']
+            elif func['type'] == "final":
+                output['final'] = func['name']
+            elif func['type'] == 'receiver':
+                output['receivers'][func['name']] = func['args']
+            elif func['type'] == 'sender':
+                output['senders'][func['name']] = func['args']
+
+        self.output = output
+
+    def dump(self):
+        try:
+            with open(self.outputfile, 'w') as fout:
+                yaml.dump(self.output, fout, explicit_start=True)
+        except IOError as e:
+            print("I/O error({0}): Output Miml file --> {1}".format(e.errno, e.strerror))
+            sys.exit(-1)
 
 class MimlCollector(c_ast.NodeVisitor):
     def __init__(self):
@@ -49,45 +73,36 @@ class MimlCollector(c_ast.NodeVisitor):
                                              'args':args
                                            }]
 
+class HeaderParse:
+    def __init__(self, filename, cppargs):
+
+        # TODO: warn if c func return isn't right for the type
+        cpp_args = cppargs.split() + [
+            r'-DMIML_INIT=__attribute__((miml(init)))',
+            r'-DMIML_FINAL=__attribute__((miml(final)))',
+            r'-DMIML_SENDER=__attribute__((miml(sender)))',
+            r'-DMIML_RECEIVER=__attribute__((miml(receiver)))'
+        ]
+
+        ast = pycparser.parse_file(filename, use_cpp=True, cpp_args=cpp_args, parser=GnuCParser())
+        dv = MimlCollector()
+        dv.visit(ast)
+        self.funcs = dv.miml_funcs
+
+
+
 if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('header', help='C header to convert to a MIML module')
     argparser.add_argument('cpp', help='Flags to pass to the C preprocessor')
     args = argparser.parse_args()
+
     if not args.header.endswith('.h'):
         print("Error: Input file not a .h file.")
         sys.exit(-1)
-
-    cpp_args = args.cpp.split() + [r'-DMIML_INIT=__attribute__((miml(init)))',
-                r'-DMIML_FINAL=__attribute__((miml(final)))',
-                r'-DMIML_SENDER=__attribute__((miml(sender)))',
-                r'-DMIML_RECEIVER=__attribute__((miml(receiver)))'
-               ]
-
-    ast = pycparser.parse_file(args.header, use_cpp=True, cpp_args=cpp_args, parser=GnuCParser())
-    dv = MimlCollector()
-    dv.visit(ast)
-
-    # TODO: warn if return isn't right for the type
-
     basename = os.path.basename(args.header)[:-2]  # strip .h, leading path
-    header = basename + '.h'
-    objfile = basename + '.o'
-    outputfile = basename + '.miml'
 
-    output = {'include': header, 'object': objfile, 'senders': {}, 'receivers': {}}
-    for func in dv.miml_funcs:
-        if func['file'] != args.header:
-            continue
+    miml = HeaderParse(args.header, args.cpp)
 
-        if func['type'] == 'init':
-            output['init'] = func['name']
-        elif func['type'] == "final":
-            output['final'] = func['name']
-        elif func['type'] == 'receiver':
-            output['receivers'][func['name']] = func['args']
-        elif func['type'] == 'sender':
-            output['senders'][func['name']] = func['args']
-
-    writemiml(outputfile, output)
+    WriteMiml(miml.funcs, basename).dump()
 
