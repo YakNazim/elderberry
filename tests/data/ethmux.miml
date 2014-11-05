@@ -1,0 +1,43 @@
+---
+final: ethmux_final
+include: ethmux.h
+init: ethmux_init
+object: ethmux.o
+receivers: {}
+senders:
+  demuxed_ADIS:
+  - [unsigned char *]
+  - [unsigned int]
+  - [unsigned char *]
+  demuxed_ARM:
+  - [unsigned char *]
+  - [unsigned int]
+  - [unsigned char *]
+  demuxed_FCFH:
+  - [unsigned char *]
+  - [unsigned int]
+  - [unsigned char *]
+  demuxed_LD:
+  - [unsigned char *]
+  - [unsigned int]
+  - [unsigned char *]
+  demuxed_MPL:
+  - [unsigned char *]
+  - [unsigned int]
+  - [unsigned char *]
+  demuxed_MPU:
+  - [unsigned char *]
+  - [unsigned int]
+  - [unsigned char *]
+  demuxed_RC:
+  - [unsigned char *]
+  - [unsigned int]
+  - [unsigned char *]
+  demuxed_RNH:
+  - [unsigned char *]
+  - [unsigned int]
+  - [unsigned char *]
+  demuxed_RNHPORT:
+  - [unsigned char *]
+  - [unsigned int]
+  - [unsigned char *]

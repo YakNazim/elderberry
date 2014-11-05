@@ -1,0 +1,20 @@
+language: python
+python:
+  - "3.4"
+
+install:
+  - pip install coveralls
+
+script: coverage run --source=elderberry setup.py test
+
+after_success: coveralls
+
+notifications:
+  irc:
+    channels: "irc.psas.pdx.edu#psas"
+    template:
+      - "%{repository}@%{branch}: %{message} (%{build_url})"
+    on_success: change
+    on_failure: change
+    use_notice: true
+  email: false

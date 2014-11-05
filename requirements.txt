@@ -1,0 +1,4 @@
+pyyaml
+pycparser >= 2.10
+pycparserext >= 2013.2
+#libev

@@ -1,0 +1,19 @@
+include: rollcontrol.h
+init: rollcontrol_init();
+object: rollcontrol.o
+receivers:
+  rc_raw_ld_in:
+  - [ARG1, unsigned char *]
+  - [ARG2, unsigned int]
+  - [ARG3, unsigned char*]
+  rc_raw_testrc:
+  - [ARG1, unsigned char *]
+  - [ARG2, unsigned int]
+  - [ARG3, unsigned char*]
+  rc_receive_arm:
+  - [ARG1, const char *]
+  rc_receive_imu:
+  - [ARG1, ADISMessage *]
+senders:
+  rc_send_servo:
+  - [ARG1, RollServoMessage*]
