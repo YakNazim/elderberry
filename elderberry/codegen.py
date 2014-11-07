@@ -5,8 +5,6 @@ import copy
 import fnmatch
 import logging
 from os import path, access, R_OK
-from collections import defaultdict
-from pprint import pprint
 
 class ErrorCounter(logging.Filter):
     warnings = 0
@@ -26,28 +24,6 @@ class ErrorCounter(logging.Filter):
 def errorExit(msg, *args, **kwargs):
     logging.error(msg, *args, **kwargs)
     sys.exit(1)
-
-class OutputGenerator:
-
-    def __init__(self, modename, filename='', modeflag=False):
-        self.output = defaultdict(str)
-        self.filename = filename
-        self.name = modename
-        self.use = modeflag
-
-    def append(self, level, data):
-        self.output[level] += data + '\n'
-
-    def display(self):
-        print(self.name, ": ", self.filename)
-        for level in sorted(self.output):
-            print (self.output[level])
-
-    def write_out(self):
-        if self.use:
-            with open(self.filename, "w") as f:
-                for level in sorted(self.output):
-                    f.write(self.output[level])
 
 class Parser:
     def __init__(self, config, modeflags):
@@ -71,15 +47,9 @@ class Parser:
         self.errCount = ErrorCounter()
         logging.getLogger('').addFilter(self.errCount)
 
-        self.output = {}
-        for key, value in self.modenames.items():
-            self.output[key] = OutputGenerator(key, value, modeflags[key])
-
-        self.handler_states = [Expand(self.include_dirs), Makefile(self.output['make']), Codefile(self.output['code'])]
+        self.handler_states = [Expand(self.include_dirs), Makefile(), Codefile()]
 
     def parse(self, mainmiml):
-        # top level 'public' function. Since we have external MIML docs we need to pull those in
-        # before we crawl, so order of processing matters even though order of MIML elements does not.
         try:
             with open(mainmiml, 'r') as miml:
                 self.master = yaml.load(miml)
@@ -94,7 +64,8 @@ class Parser:
             print("Now entering:", handler.__class__.__name__)
             handler.handle(self.master)
             self.check(handler)
-        #self.output.write_out()
+        self.handler_states[1].dump(self.modenames['make'])
+        self.handler_states[2].dump(self.modenames['code'])
 
     def check(self, handler):
         state_name = handler.__class__.__name__
@@ -131,36 +102,57 @@ class Expand:
             logging.error("Could not find module MIML file: " + filename)
 
 class Makefile:
-    def __init__(self, output):
-        self.make = output
+    def __init__(self):
+        self.output = []
+
+    def dump(self, filename):
+        print('\nGenerated File:', filename)
+        for line in self.output:
+            print(line)
 
     def handle(self, tree):
-        self.sources(tree, tree['sources'])
         for source in tree['modules'].values():
-            self.objects(source['object'])
-        self.make.append(6, "\n")
-
-    def sources(self, tree, data):
-        module_miml = []
-        for source in data:
-            module_miml.append(source[1])
-        self.make.append(10, "{}: {} {}".format(tree['codename'], tree['mainmiml'], ' '.join(module_miml)))
-        self.make.append(10, "\t./codeGen.py -ch " + tree['mainmiml'])
-
-    def objects(self, data):
-        self.make.append(5, "OBJECTS += " + data)
+            self.output.append('OBJECTS += ' + source['object'])
+        self.output.append('')
+        header = []
+        for source in tree['modules'].values():
+            header.append(source['include'])
+        header = ' '.join(header)
+        self.output.append("{}: {} {}".format(tree['codename'], tree['mainmiml'], header))
+        self.output.append("\t./codeGen.py -c " + tree['mainmiml'])
 
 class Codefile:
-    def __init__(self, output):
-        self.code = output
+    def __init__(self):
+        self.output = []
+
+    def dump(self, filename):
+        print('\nGenerated File:', filename)
+        for line in self.output:
+            print(line)
 
     def handle(self, tree):
+        # FIXME: template
+        self.output.append('#include <stdlib.h>')
+        self.output.append('#include <stdio.h>')
+        self.output.append('#include <signal.h>')
+        self.output.append('#include <ev.h>')
+        for module in tree['modules'].values():
+            self.output.append('#include "{}"'.format(module['include']))
+
+        self.output.append('')
+        self.output.append("void modules_initialize(struct ev_loop * loop) {")
+        for source in tree['modules'].values():
+            if 'init' in source:
+                self.output.append("    "+source['init']+"(loop);")
+            if "final" in source:
+                self.output.append("    atexit("+source['final']+');')
+        self.output.append("}")
+
+        self.output.append('')
         for sender, receivers in tree['messages'].items():
             self.messages(tree, sender, receivers)
-        for module in tree['modules'].values():
-            self.includes(module['include'])
 
-        self.init_final(tree['modules'].values())
+        self.output.append('')
         self.main()
 
     def messages(self, tree, sender, receivers):
@@ -176,34 +168,14 @@ class Codefile:
                 args.append(parameter[0] + ' ' + '_arg' + str(i))
                 params.append('_arg' + str(i))
                 i += 1
-        self.code.append(20, 'void '+func+'('+', '.join(args)+') {')
+        self.output.append('void '+func+'('+', '.join(args)+') {')
         for receiver in receivers:
             rsrc, rfunc = receiver.split('.')
-            self.code.append(20, '    {}({});'.format(rfunc, ', '.join(params)))
-        self.code.append(20, "}\n")
-
-    def includes(self, data):
-        self.code.append(5, '#include "{}"'.format(data))
-
-    def init_final(self, sources):
-        self.code.append(10, "void modules_initialize(struct ev_loop * loop) {")
-        for source in sources:
-            if 'init' in source:
-                self.code.append(10, "    "+source['init']+"(loop);")
-            if "final" in source:
-                self.code.append(10, "    atexit("+source['final']+');')
-        self.code.append(10, "}")
+            self.output.append('    {}({});'.format(rfunc, ', '.join(params)))
+        self.output.append("}")
 
     def main(self):
-        # FIXME: template
-        self.code.append(2, """
-#include <stdlib.h>
-#include <stdio.h>
-#include <signal.h>
-#include <ev.h>
-""")
-
-        self.code.append(100, """
+        self.output.append("""
 static void stop_cb(struct ev_loop *loop, ev_signal *w, int revents){
     printf("Quitting\\n");
     ev_break(loop, EVBREAK_ALL);
