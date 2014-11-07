@@ -6,25 +6,6 @@ object: logger.o
 receivers:
   log_receive_adis:
   - [ADISMessage *]
-  log_receive_arm:
-  - [char *]
-  log_receive_fcfh:
-  - [unsigned char *, buffer]
-  - [int unsigned, len]
-  - [unsigned char *, timestamp]
-  log_receive_gps:
-  - [GPSMessage *]
-  log_receive_mpl:
-  - [MPLMessage *]
-  log_receive_mpu:
-  - [MPUMessage *]
   log_receive_rc:
   - [RollServoMessage *]
-  log_receive_rnh_version:
-  - [uint8_t *, buffer]
-  - [unsigned int, length]
-  log_receive_rnhh:
-  - [RNHHMessage *, packet]
-  log_receive_rnhp:
-  - [RNHPMessage *, packet]
 senders: {}

@@ -1,70 +1,20 @@
 sources:
-  - [TIME, utils_time.miml]     # Time utilities
-  - [SOCK, utils_sockets.miml]  # Socket utilities
-  - [ADDR, net_addrs.miml]      # RocketNet addresses
   - [ADIS, adis.miml]           # ADIS Sensor
   - [LOG, logger.miml]          # Logger code Module
-  - [GPS, gps.miml]             # GPS Sensor
-  - [ARM, arm.miml]             # Arm Code Module
   - [RC, rollcontrol.miml]      # Roll Control Code Module
-  - [RS, rollservo.miml]        # Roll Servo Control Interface
   - [ETH, ethmux.miml]          # Central Ethernet receiver
-  - [MPU, mpu.miml]             # MPU module
-  - [MPL, mpl.miml]             # MPL module
-  - [RNH, rnh.miml]             # RocketNet Hub
-  - [RCI, rci.miml]             # RocketNet Command Interpreter
 
 messages:
   ETH.demuxed_ADIS:
     - ADIS.adis_raw_in
 
-  ETH.demuxed_LD:
-    - RC.rc_raw_ld_in
-
-  ETH.demuxed_MPU:
-    - MPU.mpu_raw_in
-
-  ETH.demuxed_MPL:
-    - MPL.mpl_raw_in
-
-  ETH.demuxed_RNH:
-   - RNH.rnh_raw_in
-
-  ETH.demuxed_FCFH:
-   - LOG.log_receive_fcfh
-
-  ETH.demuxed_COTS:
-   - GPS.cots_raw_in
-
-  ETH.sequenced_error:
-   - LOG.log_receive_seqpacket_err
+  ETH.demuxed_RC:
+    - RC.receive_raw
 
   ADIS.adis_data_out:
-    - ARM.arm_receive_imu
     - RC.rc_receive_imu
     - LOG.log_receive_adis
 
-  GPS.gps_data_out:
-    - ARM.arm_receive_gps
-    - LOG.log_receive_gps
-
-  ARM.arm_send_signal:
-    - RC.rc_receive_arm
-    - LOG.log_receive_arm
-
   RC.rc_send_servo:
-    - RS.rs_receive_adj
     - LOG.log_receive_rc
-
-  MPU.mpu_data_out:
-    - LOG.log_receive_mpu
-
-  MPL.mpl_data_out:
-    - LOG.log_receive_mpl
-
-  RNH.rnh_data_out:
-    - LOG.log_receive_rnh
-
-  RNH.rnh_version_out:
-    - LOG.log_receive_rnh_version
 

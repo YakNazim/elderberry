@@ -6,7 +6,7 @@ import fnmatch
 import logging
 from os import path, access, R_OK
 from collections import defaultdict
-
+from pprint import pprint
 
 class ErrorCounter(logging.Filter):
     warnings = 0
@@ -39,10 +39,9 @@ class OutputGenerator:
         self.output[level] += data + '\n'
 
     def display(self):
-        if self.use:
-            print(self.name, ": ", filename)
-            for level in sorted(self.output):
-                print (self.name, "->", level, "->", self.output[level])
+        print(self.name, ": ", self.filename)
+        for level in sorted(self.output):
+            print (self.output[level])
 
     def write_out(self):
         if self.use:
@@ -51,7 +50,6 @@ class OutputGenerator:
                     f.write(self.output[level])
 
 class Parser:
-
     def __init__(self, config, modeflags):
         # Read config file.
         try:
@@ -62,35 +60,22 @@ class Parser:
         except yaml.YAMLError as e:
             errorExit("YAML parsing error in config: " + str(e))
 
-        # get filename configuration data and remove from config, this makes
-        # it so only handler data is left. Better for handlers!
         try:
             self.modenames = self.config.pop('filenames', {})
-            self.handler_paths = self.config.pop('handlers', {})
+            self.include_dirs = self.config.pop('include', [])
         except AttributeError:
             self.modenames={}
-            self.handler_paths = {}
+            self.include_dirs=[]
+        self.include_dirs += ['']
 
         self.errCount = ErrorCounter()
         logging.getLogger('').addFilter(self.errCount)
 
-        # Setup a ParserHandlers objects
-        # Since we have multiple MIML files now we need phases for processing.
-        # Expansion allows handler functions that expect data in other files the opportunity
-        #   to pull in that external data and place it in the parse tree.
-        # Validation allows handler functions the opportunity to examine other data in the tree
-        #   to ensure it is ready for use, including data pulled in by other functions.
-        # Generate is where the actual parsing work happens, where handler functions generate output.
-        # Actual output writing happens when all these phases are complete and is not part of "parsing".
-        # There is a 4th stage (not really a stage), purge. In which a ParserHandlers function is called to
-        # commit last minute stuff to the OutputGenerator. For some output requirements it may be easier to
-        # stage to a local ParserHandler structure in Parse, then stage later.
         self.output = {}
         for key, value in self.modenames.items():
             self.output[key] = OutputGenerator(key, value, modeflags[key])
 
-        self.handler_states = [Expand(self), Validate(self), Generate(self)]
-        self.handler_functions = ParseHandlers(self)
+        self.handler_states = [Expand(self.include_dirs), Makefile(self.output['make']), Codefile(self.output['code'])]
 
     def parse(self, mainmiml):
         # top level 'public' function. Since we have external MIML docs we need to pull those in
@@ -102,22 +87,14 @@ class Parser:
             errorExit("Error opening main MIML file: " + str(e))
         except yaml.YAMLError as e:
             errorExit("YAML parsing error: " + str(e))
+        self.master['mainmiml'] = mainmiml
+        self.master['codename'] = self.modenames['code']
 
-        # Do Expand, Validate, Generate
-        # Initialize the stage buffers
-        self.buffer = self.master
-        self.unhandled = {}
         for handler in self.handler_states:
-            self.transition(handler)
-            self.crawl(self.master)
+            print("Now entering:", handler.__class__.__name__)
+            handler.handle(self.master)
             self.check(handler)
-
-        # purge staged data. Our 4th state, kinda...
-        self.handler_functions.purge()
-
-        # Make Output files!!!
-        logging.debug(self.output.display())
-        self.output.write_out()
+        #self.output.write_out()
 
     def check(self, handler):
         state_name = handler.__class__.__name__
@@ -129,285 +106,103 @@ class Parser:
             sys.exit(1)
         self.errCount.reset()
 
-        if not self.unhandled == {}:
-            errorExit("Unhandled MIML content at end of " +
-                        state_name + " state!\n" + yaml.dump(self.unhandled))
+class Expand:
+    def __init__(self, includes):
+        self.includes = includes
 
+    def handle(self, tree):
+        tree['modules'] = {}
+        for miml in tree['sources']:
+            tree['modules'][miml[0]] = self.expand(miml[1])
 
-    def transition(self, handler):
-        state_name = handler.__class__.__name__
-        print("Now entering :", state_name)
-
-        self.master = self.buffer
-        self.unhandled = copy.copy(self.master)
-        self.buffer = {}
-
-        self.handler_functions = handler
-
-        logging.debug(state_name + " This:")
-        logging.debug(yaml.dump(self.master))
-
-    def crawl(self, data, path=['']):
-        logging.debug(path)
-        # Recursive function "Weee!"
-        # Different structure walking for dict/list/scalar
-        # path works as stack of directories (push/pop)
-        # FIXME: what if key/element is not str
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if self.handle(value, path + [key]) == False:
-                    self.crawl(value, path + [key])
-        elif isinstance(data, list):
-            for element in data:
-                if self.handle(element, path + [element]) == False:
-                    self.crawl(element, path + [element])
+    def expand(self, filename):
+        for pathname in self.includes:
+            fullpath = path.join(pathname, filename)
+            if path.exists(fullpath):
+                try:
+                    with open(fullpath, 'r') as f:
+                       return yaml.load(f)
+                except IOError as e:
+                    logging.error("Error opening module MIML file: " + str(e))
+                except yaml.YAMLError as e:
+                    logging.error("YAML parsing error: " + str(e))
+                break
         else:
-            self.handle(data, path)
+            logging.error("Could not find module MIML file: " + filename)
 
-    def handle(self, data, path):
-        # This method returns True if a handler decides no other parsing is required for
-        # the data it handles, for the mode it is in.
-        return_value = False
-        for key, value in self.handler_paths.items():
-            if fnmatch.fnmatchcase('/'.join(path), value['path']):
-                if type(data).__name__ == self.handler_paths[key]['type']:
-                    return_value = return_value or getattr(self.handler_functions, key)(data)
-                else:
-                    logging.error("Handler type mismatch. {} expects {}, received {}".format(key, self.handler_paths[key]['type'], type(data).__name__))
+class Makefile:
+    def __init__(self, output):
+        self.make = output
 
-        return return_value
-
-class ParseHandlers:
-
-    def __init__(self, parser):
-        self.parser = parser
-        self.code = self.parser.output['code']
-        self.make = self.parser.output['make']
-        self.header = self.parser.output['header']
-
-    def purge(self):
-        # Required function, not part of config-based handlers
-        # Called after Parsing phase, allows handlers to stage data and then commit to OutputGenerator after parse stage.
-        # or allows single time setup data, like fcfutils.h include, or carriage returns for pretty output.
-        self.code.append(6, "\n")
-        self.code.append(11, "\n")
-        self.code.append(16, "\n")
-        self.code.append(101, "\n")
+    def handle(self, tree):
+        self.sources(tree, tree['sources'])
+        for source in tree['modules'].values():
+            self.objects(source['object'])
         self.make.append(6, "\n")
 
-    def sources(self, data):
-        return True  # Nothing responds to data under here, left in so includes/final can figure out what order to stage data.
-
-    def messages(self, data):
-        return False
-
-    def modules(self, data):
-        # Must return False or other module matches will not happen.
-        self.parser.buffer['modules'] = data
-        return False
-
-    def includes(self, data):
-        return True
-
-    def objects(self, data):
-        return True
-
-    def inits(self, data):
-        return True
-
-    def init_final(self, data):
-        return True
-
-    def finals(self, data):
-        return True
-
-    def senders(self, data):
-        # validate_params wrapper that targets senders
-        return self.params(data)
-
-    def receivers(self, data):
-        # validate_params wrapper that targets receivers
-        return self.params(data)
-
-    def params(self, data):
-        return True
-
-class Expand(ParseHandlers):
-    def sources(self, data):
-        p = self.parser
-        # Pull in external file data, place in buffer
-        print("At sources")
-        del(p.unhandled['sources'])
-        p.buffer['modules'] = {}
-        p.buffer['source_order'] = data
-        for source in data:
-            try:
-                with open(source[1], 'r') as module:
-                    p.buffer['modules'][source[0]] = yaml.load(module)
-            except IOError as e:
-                logging.error("Error opening module MIML file: " + str(e))
-            except yaml.YAMLError as e:
-                logging.error("YAML parsing error: " + str(e))
-
-        return True
-
-    def messages(self, data):
-        # Nothing to expand, but buffer messages for later passes.
-        del(self.parser.unhandled['messages'])
-        self.parser.buffer['messages'] = data
-        return True
-
-class Validate(ParseHandlers):
-    def messages(self, data):
-        p = self.parser
-        for message in data.keys():
-            sender = message.split('.')
-            if not len(sender) == 2:
-                logging.error("Illegal Sender syntax: " + message)
-            elif not sender[0] in p.master['modules']:
-                logging.error("Sending source " + sender[0] + " not loaded as module.")
-            elif not sender[1] in p.master['modules'][sender[0]]['senders']:
-                logging.error("Sending message " + sender[1] + " not defined as sender for " + sender[0])
-            else:
-                sender_params = p.master['modules'][sender[0]]['senders'][sender[1]]
-                for rec in data[message]:
-                    receiver = rec.split('.')
-                    if not len(sender) == 2:
-                        logging.error("Illegal Receiver syntax: " + rec + " for message " + message)
-                    elif not receiver[0] in p.master['modules']:
-                        logging.error("Receiver: " + receiver[0] + " not loaded as module.")
-                    elif not receiver[1] in p.master['modules'][receiver[0]]['receivers']:
-                        logging.error("Receiver function " + receiver[1] + " not defined as receiver for " + receiver[0])
-                    elif not len(sender_params) == len(p.master['modules'][receiver[0]]['receivers'][receiver[1]]):
-                        logging.error("Message " + str(sender) + " cannot send to receiver " + str(rec) +
-                        ". Number of arguments must be the same in both functions.")
-                    else:
-                        pos = 0
-                        for param in sender_params:
-                            if not param[1] == p.master['modules'][receiver[0]]['receivers'][receiver[1]][pos][1]:
-                                logging.error("Message " + message + " cannot send to receiver " +
-                                rec + ". Type mismatch on argument " + str(pos + 1))
-                            pos += 1
-        del(p.unhandled['messages'])
-        p.buffer['messages'] = data
-        return True
-
-    def modules(self, modules):
-        p = self.parser
-        for name, body in modules.items():
-            for key in body:
-                if not key in ('include', 'object', 'init', 'final', 'senders', 'receivers'):
-                    logging.error("Module: " + name + " contains illegal component: " + key)
-        del(p.unhandled['modules'])
-        p.buffer['modules'] = modules
-        # Must return False or other module matches will not happen.
-        return False
-
-    def includes(self, data):
-        # handles include files.
-        if not re.match(r"\w+\.h", data):
-            logging.error("Illegal header file format: " + data)
-        return True
-
-    def objects(self, data):
-        # handles object files for the make file, needs to add 1 row to make file so stages
-        # into (self.objects), purge makes output.
-        if not re.match(r"(/|\w)+\.o", data):
-            logging.error("Illegal object file format: " + data)
-        return True
-
-    def inits(self, data):
-        # validates a modules initialize functions, output is generated via the module handler.
-        if not re.match(r"\w+", data):
-            logging.error("Illegal initialize function: " + data)
-        return True
-
-    def init_final(self, data):
-        p = self.parser
-        del(p.unhandled['source_order'])
-        p.buffer['source_order'] = data
-        p.buffer['mainfunc'] = []
-        return True
-
-    def finals(self, data):
-        # validates a modules finalize functions, output is generated via the module handler.
-        if not re.match(r"\w+", data):
-            logging.error("Illegal finalize function: " + data)
-        return True
-
-    def params(self, data):
-        # Validate sender and receiver parameters, checks that each parameter has 2 elements
-        # and that the second could be a C type
-        for param in data:
-            if not len(param) == 2:
-                logging.error("Illegal parameter definition: " + str(param))
-            datatype = re.match(r"(?:const\s)?((?:unsigned\s)?\w+)(?:\s?[*&])?", param[1]).group(1)  # FIXME: This doesn't look like it hits all the types
-            if not datatype:
-                logging.error("Illegal parameter type: " + str(param[1]))
-        return True
-
-class Generate(ParseHandlers):
-
-    def sources(self, data):
-        p = self.parser
+    def sources(self, tree, data):
         module_miml = []
         for source in data:
             module_miml.append(source[1])
-        self.make.append(10, self.code.filename + " " + self.header.filename + ": " + p.miml_file + " " + ' '.join(module_miml))
-        self.make.append(10, "\t./codeGen.py -ch " + p.miml_file)
-        return True  # Nothing responds to data under here, left in so includes/final can figure out what order to stage data.
-
-    def messages(self, data):
-        p = self.parser
-        for message in data.keys():  # for each message
-            (src, func) = message.split('.')
-            args = []
-            params = []
-            types = []
-            for caller_param in p.master['modules'][src]['senders'][func]:  # for each param in caller
-                args.append(caller_param[1] + " " + caller_param[0])
-                params.append(caller_param[0])
-                types.append(caller_param[1])
-            self.header.append(10, "void " + func + "(" + ', '.join(types) + ');')
-            self.code.append(20, "void " + func + "(" + ', '.join(args) + ') {')
-            for receivers in data[message]:  # for each receiver
-                (rsrc, rfunc) = receivers.split('.')
-                self.code.append(20, "    " + rfunc + "(" + ', '.join(params) + ');')
-            self.code.append(20, "}\n")
-        return True
-
-    def includes(self, data):
-        # handles include files.
-        self.code.append(5, "#include \"" + data + "\"")
-        return True
+        self.make.append(10, "{}: {} {}".format(tree['codename'], tree['mainmiml'], ' '.join(module_miml)))
+        self.make.append(10, "\t./codeGen.py -ch " + tree['mainmiml'])
 
     def objects(self, data):
-        # handles object files for the make file. Gives each object its own row
         self.make.append(5, "OBJECTS += " + data)
-        return True
 
-    def init_final(self, data):
-        p = self.parser
-        finals = []
+class Codefile:
+    def __init__(self, output):
+        self.code = output
+
+    def handle(self, tree):
+        for sender, receivers in tree['messages'].items():
+            self.messages(tree, sender, receivers)
+        for module in tree['modules'].values():
+            self.includes(module['include'])
+
+        self.init_final(tree['modules'].values())
+        self.main()
+
+    def messages(self, tree, sender, receivers):
+        src, func = sender.split('.')
+        args = []
+        params = []
+        i = 0
+        for parameter in tree['modules'][src]['senders'][func]:  # for each param in caller
+            if len(parameter) == 2:
+                args.append(parameter[1] + " " + parameter[0])
+                params.append(parameter[0])
+            else:
+                args.append(parameter[0] + ' ' + '_arg' + str(i))
+                params.append('_arg' + str(i))
+                i += 1
+        self.code.append(20, 'void '+func+'('+', '.join(args)+') {')
+        for receiver in receivers:
+            rsrc, rfunc = receiver.split('.')
+            self.code.append(20, '    {}({});'.format(rfunc, ', '.join(params)))
+        self.code.append(20, "}\n")
+
+    def includes(self, data):
+        self.code.append(5, '#include "{}"'.format(data))
+
+    def init_final(self, sources):
         self.code.append(10, "void modules_initialize(struct ev_loop * loop) {")
-        for source in data:
-            token = source[0]
-            if 'init' in p.master['modules'][token]:
-                self.code.append(10, "    " + p.master['modules'][token]['init'] + "(loop);")
-            if "final" in p.master['modules'][token]:
-                self.code.append(10, "    atexit("+p.master['modules'][token]['final']+');')
+        for source in sources:
+            if 'init' in source:
+                self.code.append(10, "    "+source['init']+"(loop);")
+            if "final" in source:
+                self.code.append(10, "    atexit("+source['final']+');')
         self.code.append(10, "}")
-        return True
 
-    def main(self, data):
-        self.code.append(5, """
+    def main(self):
+        # FIXME: template
+        self.code.append(2, """
 #include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
 #include <ev.h>
 """)
 
-        # FIXME: escaped newlines
         self.code.append(100, """
 static void stop_cb(struct ev_loop *loop, ev_signal *w, int revents){
     printf("Quitting\\n");
@@ -435,6 +230,4 @@ int main(int argc, char *argv[]){
 
     return EXIT_SUCCESS;
 }""")
-
-        return True
 
