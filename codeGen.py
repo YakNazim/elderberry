@@ -20,7 +20,6 @@ if __name__ == '__main__':
     argparser = argparse.ArgumentParser()
     argparser.add_argument('-c', help='Generate C files', action='store_true')
     argparser.add_argument('-m', help='Generate Makefiles', action='store_true')
-    argparser.add_argument('-b', help='Do something with headers', action='store_true')
     argparser.add_argument('-v', help='Enable additional logging', action='count')
     argparser.add_argument('-g', help='Code generator config filename')
     argparser.add_argument('miml', help='Main miml filename')
@@ -36,7 +35,6 @@ if __name__ == '__main__':
     modeflags = {}
     modeflags['code'] = args.c
     modeflags['make'] = args.m
-    modeflags['header'] = args.b
 
     config = args.g if args.g else 'cg.conf'
 
