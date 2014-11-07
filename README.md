@@ -1,3 +1,7 @@
+[![Build Status](https://travis-ci.org/psas/elderberry.svg?branch=libev-dev)](https://travis-ci.org/psas/elderberry)
+[![Coverage Status](https://coveralls.io/repos/psas/elderberry/badge.png?branch=libev-dev)](https://coveralls.io/r/psas/elderberry?branch=libev-dev)
+
+
 FLIGHT CONTROL FRAMEWORK README
 Team Elderberry (2013)
 
