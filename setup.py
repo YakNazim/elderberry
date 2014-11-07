@@ -20,7 +20,6 @@ setup(
     install_requires=[],
     scripts=[
         'codeGen.py',
-        'header2Miml.py',
     ],
     license=open('LICENSE').read(),
     zip_safe=False,
