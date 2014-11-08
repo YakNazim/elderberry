@@ -3,14 +3,13 @@
  * from the Elderberry framework.
  */
 
-
 #include <stdlib.h>
 #include <stdio.h>
 #include <signal.h>
 #include <ev.h>
 //headers
 
-static void modules_initialize(int argc, char *argv[], struct ev_loop * loop){
+static void modules_initialize(int argc, char *argv[]){
 //initfinal
 }
 
@@ -33,17 +32,15 @@ int main(int argc, char *argv[]){
 		errx(EXIT_FAILURE, "Fatal: libev recommended backend not available");
 	}
 
-	struct ev_loop * loop;
-	loop = ev_default_loop(0);
-	if(!loop){
+	if(!EV_DEFAULT){
 		errx(EXIT_FAILURE, "Fatal: could not initialize libev loop");
 	}
 
 	ev_signal stop;
 	ev_signal_init(&stop, stop_cb, SIGINT);
-	ev_signal_start(loop, &stop);
-	modules_initialize(argc, argv, loop)
-	ev_run(loop, 0);
+	ev_signal_start(EV_DEFAULT_UC_ &stop);
+	modules_initialize(argc, argv);
+	ev_run(EV_DEFAULT_UC_ 0);
 
 	return EXIT_SUCCESS;
 }

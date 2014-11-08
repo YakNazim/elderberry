@@ -16,7 +16,7 @@ class MimlCollector(c_ast.NodeVisitor):
         args = []
         for node in paramlist.params:
             pointers = []
-            while isinstance(node.type, c_ast.PtrDecl):
+            while isinstance(node.type, c_ast.PtrDecl) or isinstance(node.type, c_ast.ArrayDecl):
                 pointers += ['*']
                 node = node.type
             args += [[' '.join(node.type.type.names + pointers)]]
@@ -139,7 +139,7 @@ class Codefile:
         initfinal = ''
         for source in tree['modules'].values():
             if 'init' in source:
-                initfinal += '\t{}(argc, argv, loop);\n'.format(source['init'])
+                initfinal += '\t{}(argc, argv);\n'.format(source['init'])
             if "final" in source:
                 initfinal += '\tatexit({});\n'.format(source['final'])
 
