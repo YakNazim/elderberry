@@ -41,7 +41,7 @@ class MimlCollector(c_ast.NodeVisitor):
                                 }]
 
 class Expand:
-    def __init__(self, cppargs=''):
+    def __init__(self, filename='', cppargs=''):
         # TODO: warn if c func return isn't right for the type
         self.cpp_args = cppargs.split() + [
             r'-DMIML_INIT=__attribute__((miml(init)))',
@@ -49,6 +49,9 @@ class Expand:
             r'-DMIML_SENDER=__attribute__((miml(sender)))',
             r'-DMIML_RECEIVER=__attribute__((miml(receiver)))'
         ]
+
+    def dump(self):
+        pass
 
     def handle(self, tree):
         self.includes = tree['include']
@@ -93,13 +96,14 @@ class Expand:
             raise IOError("Could not find header file: " + filename)
 
 class Makefile:
-    def __init__(self):
+    def __init__(self, filename=''):
+        self.filename = filename
         self.output = []
 
-    def dump(self, filename):
-        print('\nGenerated File:', filename)
-        for line in self.output:
-            print(line)
+    def dump(self):
+        if self.filename:
+            with open(self.filename, 'w') as f:
+                f.write('\n'.join(self.output))
 
     def handle(self, tree):
         for source in tree['modules'].values():
@@ -116,10 +120,13 @@ class CTemplate(Template):
     delimiter='//'
 
 class Codefile:
+    def __init__(self, filename=''):
+        self.filename = filename
 
-    def dump(self, filename):
-        print('\nGenerated File:', filename)
-        print(self.output)
+    def dump(self):
+        if self.filename:
+            with open(self.filename, 'w') as f:
+                f.write(self.output)
 
     def handle(self, tree):
         with open(path.join(tree['framework'],'elderberry/evutils.c')) as f:
@@ -183,7 +190,17 @@ class Parser:
             self.framework='.'
         self.include.append('')
 
-        self.handlers = [Expand(), Makefile(), Codefile()]
+        output={}
+        for name, flag in modeflags.items():
+            if flag:
+                output[name] = self.modenames.get(name, '')
+            else:
+                output[name] = ''
+
+        self.handlers = [Expand(),
+                         Makefile(output.get('make', '')),
+                         Codefile(output.get('code', ''))
+                        ]
 
     def parse(self, mainmiml):
         try:
@@ -196,11 +213,9 @@ class Parser:
             logging.error("YAML parsing error: " + str(e))
             raise
         self.master['mainmiml'] = mainmiml
-        self.master['codename'] = self.modenames['code']
+        self.master['codename'] = self.modenames.get('code', '')
         self.master['framework'] = self.framework
         self.master['include'] = self.include
         for handler in self.handlers:
             handler.handle(self.master)
-        self.handlers[1].dump(self.modenames['make'])
-        self.handlers[2].dump(self.modenames['code'])
-
+            handler.dump()
