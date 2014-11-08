@@ -14,7 +14,7 @@ from elderberry import codegen
 
 class TestCodeGen(unittest.TestCase):
     def setUp(self):
-        pass
+        print('')
 
 #    def test_emptyfiles(self):
 #        codegen.Parser('tests/data/empty.conf', {})

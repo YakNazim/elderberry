@@ -1,20 +1,20 @@
-sources:
-  - [ADIS, adis.miml]           # ADIS Sensor
-  - [LOG, logger.miml]          # Logger code Module
-  - [RC, rollcontrol.miml]      # Roll Control Code Module
-  - [ETH, ethmux.miml]          # Central Ethernet receiver
+headers:
+  - adis.h
+  - logger.h
+  - rollcontrol.h
+  - ethmux.h
 
 messages:
-  ETH.demuxed_ADIS:
-    - ADIS.adis_raw_in
+  ethmux.demuxed_ADIS:
+    - adis.adis_raw_in
 
-  ETH.demuxed_RC:
-    - RC.receive_raw
+  ethmux.demuxed_RC:
+    - rollcontrol.receive_raw
 
-  ADIS.adis_data_out:
-    - RC.rc_receive_imu
-    - LOG.log_receive_adis
+  adis.adis_data_out:
+    - rollcontrol.rc_receive_imu
+    - logger.log_receive_adis
 
-  RC.rc_send_servo:
-    - LOG.log_receive_rc
+  rollcontrol.rc_send_servo:
+    - logger.log_receive_rc
 
