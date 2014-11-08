@@ -16,14 +16,14 @@ class TestCodeGen(unittest.TestCase):
     def setUp(self):
         print('')
 
-#    def test_emptyfiles(self):
-#        codegen.Parser('tests/data/empty.conf', {})
+    def test_emptyfiles(self):
+        codegen.Parser('tests/data/empty.conf', {})
 
     def test_av3config(self):
-        codegen.Parser('tests/data/cg.conf', {'code':False, 'make':False, 'header':False})
+        codegen.Parser('tests/data/cg.conf', {'code':False, 'make':False})
 
     def test_av3(self):
-        p = codegen.Parser('tests/data/cg.conf', {'code':False, 'make':False, 'header':False})
+        p = codegen.Parser('tests/data/cg.conf', {'code':True, 'make':True})
         p.parse('tests/data/main.miml')
 
 
