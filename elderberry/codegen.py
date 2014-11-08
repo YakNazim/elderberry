@@ -1,6 +1,7 @@
 import yaml
 import logging
 from os import path
+from string import Template
 import pycparser
 from pycparser import c_generator, c_ast
 import pycparserext
@@ -69,6 +70,11 @@ class Expand:
                 if functype == 'init' or functype == 'final':
                     tree['modules'][basename][functype] = func['name']
                 else:
+                    i = 0
+                    for arg in func['args']:
+                        if len(arg) == 1: #FIXME: don't stomp on already existing args
+                            arg.append('_arg'+str(i))
+                            i += 1
                     try:
                         tree['modules'][basename][functype][func['name']] = func['args']
                     except KeyError:
@@ -106,88 +112,54 @@ class Makefile:
         self.output.append("{}: {} {}".format(tree['codename'], tree['mainmiml'], headers))
         self.output.append('\t' + tree['framework'] + "/codeGen.py -c " + tree['mainmiml'])
 
+class CTemplate(Template):
+    delimiter='//'
+
 class Codefile:
-    def __init__(self):
-        self.output = []
 
     def dump(self, filename):
         print('\nGenerated File:', filename)
-        for line in self.output:
-            print(line)
+        print(self.output)
 
     def handle(self, tree):
-        # FIXME: template
-        self.output.append('#include <stdlib.h>')
-        self.output.append('#include <stdio.h>')
-        self.output.append('#include <signal.h>')
-        self.output.append('#include <ev.h>')
-        for header in tree['headers']:
-            self.output.append('#include "{}"'.format(header))
+        with open(path.join(tree['framework'],'elderberry/evutils.c')) as f:
+            template = f.read(-1)
 
-        self.output.append('')
-        self.output.append("void modules_initialize(struct ev_loop * loop) {")
+        headers = ''
+        for header in tree['headers']:
+            headers += '#include "{}"\n'.format(header)
+
+        initfinal = ''
         for source in tree['modules'].values():
             if 'init' in source:
-                self.output.append("    "+source['init']+"(loop);")
+                initfinal += '\t{}(argc, argv, loop);\n'.format(source['init'])
             if "final" in source:
-                self.output.append("    atexit("+source['final']+');')
-        self.output.append("}")
+                initfinal += '\tatexit({});\n'.format(source['final'])
 
-        self.output.append('')
+        wiring = ''
         for sender, receivers in tree['messages'].items():
-            self.messages(tree, sender, receivers)
+            wiring += self.messages(tree, sender, receivers)
 
-        self.output.append('')
-        self.main()
+        subs = {'headers':headers, 'initfinal':initfinal, 'wiring':wiring}
+        self.output = CTemplate(template).substitute(subs)
 
     def messages(self, tree, sender, receivers):
+        text = ''
         src, func = sender.split('.')
         args = []
         params = []
-        i = 0
-        for parameter in tree['modules'][src]['sender'][func]:  # for each param in caller
-            if len(parameter) == 2:
-                args.append(parameter[1] + " " + parameter[0])
-                params.append(parameter[0])
-            else:
-                args.append(parameter[0] + ' ' + '_arg' + str(i))
-                params.append('_arg' + str(i))
-                i += 1
-        self.output.append('void '+func+'('+', '.join(args)+') {')
+
+        for parameter in tree['modules'][src]['sender'][func]: # for each param in caller
+            args.append(parameter[0] + " " + parameter[1])
+            params.append(parameter[1])
+
+        text += 'void '+func+'('+', '.join(args)+') {\n'
         for receiver in receivers:
             rsrc, rfunc = receiver.split('.')
-            self.output.append('    {}({});'.format(rfunc, ', '.join(params)))
-        self.output.append("}")
+            text +='\t{}({});\n'.format(rfunc, ', '.join(params))
 
-    def main(self):
-        self.output.append("""
-static void stop_cb(struct ev_loop *loop, ev_signal *w, int revents){
-    printf("Quitting\\n");
-    ev_break(loop, EVBREAK_ALL);
-}
-
-int main(int argc, char *argv[]){
-    //todo: boilerplate
-    //todo: ev_version check, ev_backends check
-
-    struct ev_loop * loop;
-    loop = ev_default_loop(0);
-    if(!loop){
-        fprintf(stderr, "Fatal: could not initialize libev\\n");
-        return EXIT_FAILURE;
-    }
-
-    ev_signal stop;
-    ev_signal_init(&stop, stop_cb, SIGINT);
-    ev_signal_start(loop, &stop);
-    //todo: argc, argv passed to initialize. Use argp?
-    modules_initialize(loop);
-    ev_run (loop, 0);
-
-
-    return EXIT_SUCCESS;
-}""")
-
+        text += ("}\n")
+        return text
 
 class Parser:
     def __init__(self, config, modeflags):
@@ -209,7 +181,7 @@ class Parser:
             self.modenames={}
             self.include=[]
             self.framework='.'
-        self.include += ['']
+        self.include.append('')
 
         self.handlers = [Expand(), Makefile(), Codefile()]
 
