@@ -7,7 +7,7 @@ from pycparser import c_generator, c_ast
 import pycparserext
 from pycparserext.ext_c_parser import GnuCParser, AttributeSpecifier
 from pycparserext.ext_c_generator import GnuCGenerator
-from dot import Dot
+from elderberry.dot import Dot
 
 
 class MimlCollector(c_ast.NodeVisitor):
