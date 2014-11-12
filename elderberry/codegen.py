@@ -116,6 +116,12 @@ class Makefile:
         self.output.append("{}: {} {}".format(tree['codename'], tree['mainmiml'], headers))
         self.output.append('\t' + tree['framework'] + "/codeGen.py -c " + tree['mainmiml'])
 
+        self.output.append('')
+        binary = tree['codename'].split('.')[0]
+        self.output.append('{}: $(OBJECTS)'.format(binary))
+        self.output.append('')
+        self.output.append('all: {}'.format(binary))
+
 class CTemplate(Template):
     delimiter='//'
 
@@ -165,7 +171,7 @@ class Codefile:
             rsrc, rfunc = receiver.split('.')
             text +='\t{}({});\n'.format(rfunc, ', '.join(params))
 
-        text += ("}\n")
+        text += ("}\n\n")
         return text
 
 class Parser:

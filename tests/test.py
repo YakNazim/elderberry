@@ -23,7 +23,7 @@ class TestCodeGen(unittest.TestCase):
         codegen.Parser('tests/data/cg.conf', {'code':False, 'make':False})
 
     def test_av3(self):
-        p = codegen.Parser('tests/data/cg.conf', {'code':True, 'make':True})
+        p = codegen.Parser('tests/data/cg.conf', {'code':True, 'make':True, 'dot':True})
         p.parse('tests/data/main.miml')
 
 
