@@ -5,10 +5,10 @@ from os import path
 import importlib
 
 class Parser:
-    def __init__(self, config, outputflags):
+    def __init__(self, config):
         try:
             with open(config, 'r') as conf:
-                self.config = yaml.load(conf)
+                config = yaml.load(conf)
         except IOError as e:
             logging.error("Opening config: " + str(e))
             raise
@@ -17,19 +17,18 @@ class Parser:
             raise
 
         try:
-            self.stages = self.config.pop('stages', [])
-            self.include = self.config.pop('include', [])
-            self.framework = self.config.pop('framework', '.')
+            stages = config.pop('stages', [])
+            self.include = config.pop('include', [])
+            self.framework = config.pop('framework', '.')
         except AttributeError:
-            self.stages = []
+            stages = []
             self.include = []
             self.framework = '.'
         self.include.append('')
         self.handlers = []
-        for stage in self.stages:
+        for stage in stages:
             name, config = stage.popitem()
-            module = importlib.import_module(name)
-            plugin = module.plugin()
+            plugin = importlib.import_module(name).plugin()
             self.handlers.append(plugin(config))
 
     def parse(self, mainmiml):
