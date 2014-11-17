@@ -5,12 +5,12 @@ void rollcontrol_init(int argc, char * argv[]){
 
 }
 
-void rc_receive_raw(unsigned char * buff, unsigned int len, unsigned char * time){
+void rc_raw(unsigned char * buff, unsigned int len, unsigned char * time){
 
 }
-void rc_receive_imu(ADISMessage * m){
+void rc_adis(ADISMessage * m){
 	RollServoMessage n;
 	n.number = m->number;
-	rc_send_servo(&n);
+	rc_out(&n);
 }
 

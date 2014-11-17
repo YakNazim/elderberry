@@ -8,7 +8,7 @@ typedef struct {
 } RollServoMessage;
 
 void MIML_INIT rollcontrol_init(int argc, char * argv[]);
-void MIML_RECEIVER rc_receive_raw(unsigned char *, unsigned int, unsigned char *);
-void MIML_RECEIVER rc_receive_imu(ADISMessage *);
-void MIML_SENDER rc_send_servo(RollServoMessage *);
+void MIML_RECEIVER rc_raw(unsigned char *, unsigned int, unsigned char *);
+void MIML_RECEIVER rc_adis(ADISMessage *);
+void MIML_SENDER rc_out(RollServoMessage *);
 #endif

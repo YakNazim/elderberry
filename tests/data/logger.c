@@ -8,11 +8,11 @@ void logger_final(void){
 
 }
 
-void log_receive_adis(ADISMessage * m){
+void log_adis(ADISMessage * m){
 
 }
 
-void log_receive_rc(RollServoMessage * m){
+void log_rc(RollServoMessage * m){
 
 }
 

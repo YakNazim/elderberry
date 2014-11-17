@@ -5,16 +5,16 @@ headers:
   - ethmux.h
 
 messages:
-  ethmux.demuxed_ADIS:
-    - adis.adis_raw_in
+  ethmux.demuxed_adis:
+    - adis.adis_raw
 
-  ethmux.demuxed_RC:
-    - rollcontrol.rc_receive_raw
+  ethmux.demuxed_rc:
+    - rollcontrol.rc_raw
 
-  adis.adis_data_out:
-    - rollcontrol.rc_receive_imu
-    - logger.log_receive_adis
+  adis.adis_out:
+    - rollcontrol.rc_adis
+    - logger.log_adis
 
-  rollcontrol.rc_send_servo:
-    - logger.log_receive_rc
+  rollcontrol.rc_out:
+    - logger.log_rc
 

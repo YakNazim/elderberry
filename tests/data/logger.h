@@ -6,6 +6,6 @@
 
 void MIML_INIT logger_init(int argc, char * argv[]);
 void MIML_FINAL logger_final(void);
-void MIML_RECEIVER log_receive_adis(ADISMessage *);
-void MIML_RECEIVER log_receive_rc(RollServoMessage *);
+void MIML_RECEIVER log_adis(ADISMessage *);
+void MIML_RECEIVER log_rc(RollServoMessage *);
 #endif
