@@ -11,21 +11,34 @@ class Makefile:
             with open(self.filename, 'w') as f:
                 f.write('\n'.join(self.output))
 
-    def handle(self, tree):
-        for source in tree['modules'].values():
-            self.output.append('OBJECTS += ' + source['object'])
+    def rule(self, target, deps, action):
+        self.output.append('{}: {}'.format(target, deps))
+        if action:
+            self.output.append('\t{}'.format(action))
         self.output.append('')
+
+    def handle(self, tree):
+        self.output.append('CPPFLAGS= -DMIML_INIT= -DMIML_FINAL= -DMIML_SENDER= -DMIML_RECEIVER=')
+        for include in tree['include']:
+            if include:
+                self.output.append('CFLAGS+=-I{}'.format(include))
+        self.output.append('LDLIBS=-lev')
+
+
+        for source in tree['modules'].values():
+            self.output.append('OBJECTS += ' + source['path'] + '/' + source['object'])
+        self.output.append('')
+
+        binary = tree['codename'].split('.')[0]
+
+        self.rule('all', binary, '')
+        self.rule(binary, '$(OBJECTS)', '')
+
         headers = []
         for module in tree['modules'].values():
             headers.append(module['fullpath'])
         headers = ' '.join(headers)
-        self.output.append("{}: {} {}".format(tree['codename'], tree['mainmiml'], headers))
-        self.output.append('\t' + tree['framework'] + "/codeGen.py -c " + tree['mainmiml'])
-
-        self.output.append('')
-        binary = tree['codename'].split('.')[0]
-        self.output.append('{}: $(OBJECTS)'.format(binary))
-        self.output.append('')
-        self.output.append('all: {}'.format(binary))
+        action = '{}/codeGen.py {}'.format(tree['framework'], tree['mainmiml'])
+        self.rule(tree['codename'], tree['mainmiml'] + ' ' + headers, action)
 
 

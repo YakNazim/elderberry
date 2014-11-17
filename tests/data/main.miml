@@ -9,7 +9,7 @@ messages:
     - adis.adis_raw_in
 
   ethmux.demuxed_RC:
-    - rollcontrol.receive_raw
+    - rollcontrol.rc_receive_raw
 
   adis.adis_data_out:
     - rollcontrol.rc_receive_imu
