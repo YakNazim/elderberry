@@ -3,7 +3,7 @@ python:
   - "3.4"
 
 install:
-  - pip install coveralls
+  - pip install -r requirements-cover.txt
 
 script: coverage run --source=elderberry setup.py test
 
