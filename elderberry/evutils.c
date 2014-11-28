@@ -7,7 +7,30 @@
 #include <stdio.h>
 #include <signal.h>
 #include <ev.h>
+#include <ucontext.h>
+
 //headers
+
+
+static ucontext_t ripctx;
+static ucontext_t startctx;
+static bool ripping = false;
+
+static void unrip(struct pollfd * pfd){
+	removefd();
+	ripping = false;
+	setcontext(&ripctx);
+}
+
+void stackRip(int fd, short events) {
+	getcontext(&ripctx);
+	if(!ripping){
+		return;
+	}
+	ripping = true;
+	addfd();
+	setcontext(&startctx);
+}
 
 static void modules_initialize(int argc, char *argv[]){
 //initfinal

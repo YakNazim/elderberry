@@ -1,7 +1,4 @@
 
-def plugin():
-    return Dot
-
 class Dot:
     def __init__(self, filename):
         self.filename = filename

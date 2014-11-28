@@ -8,10 +8,6 @@ import pycparserext
 from pycparserext.ext_c_parser import GnuCParser, AttributeSpecifier
 from pycparserext.ext_c_generator import GnuCGenerator
 
-def plugin():
-    return Expand
-
-
 class ExpandError(Exception):
     pass
 

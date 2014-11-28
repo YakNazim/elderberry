@@ -1,5 +1,3 @@
-def plugin():
-    return Makefile
 
 class Makefile:
     def __init__(self, filename=''):

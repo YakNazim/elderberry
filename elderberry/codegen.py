@@ -28,7 +28,8 @@ class Parser:
         self.handlers = []
         for stage in stages:
             name, config = stage.popitem()
-            plugin = importlib.import_module(name).plugin()
+            module, objectname = name.rsplit('.', 1)
+            plugin = getattr(importlib.import_module(module), objectname)
             self.handlers.append(plugin(config))
 
     def parse(self, mainmiml):

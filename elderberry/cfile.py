@@ -1,10 +1,6 @@
 from os import path
 from string import Template
 
-def plugin():
-    return Codefile
-
-
 class CTemplate(Template):
     delimiter='//'
 
