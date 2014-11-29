@@ -37,6 +37,18 @@ class TestBrokenFiles(unittest.TestCase):
         with self.assertRaises(yaml.YAMLError):
             codegen.Parser('tests/data/broken.conf')
 
+    def test_missingmiml(self):
+        p = codegen.Parser('tests/data/empty.conf')
+        with self.assertRaises(IOError):
+            p.parse('tests/data/missing.miml')
+
+    def test_brokenmiml(self):
+        p = codegen.Parser('tests/data/empty.conf')
+        with self.assertRaises(yaml.YAMLError):
+            p.parse('tests/data/broken.miml')
+
+
+
 class TestExpander(unittest.TestCase):
     pass
 

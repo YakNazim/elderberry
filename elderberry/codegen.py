@@ -1,20 +1,12 @@
 import yaml
-import logging
 import sys
 from os import path
 import importlib
 
 class Parser:
     def __init__(self, config):
-        try:
-            with open(config, 'r') as conf:
-                config = yaml.load(conf)
-        except IOError as e:
-            logging.error("Opening config: " + str(e))
-            raise
-        except yaml.YAMLError as e:
-            logging.error("YAML parsing error in config: " + str(e))
-            raise
+        with open(config, 'r') as conf:
+            config = yaml.load(conf)
 
         try:
             stages = config.pop('stages', [])
@@ -33,15 +25,8 @@ class Parser:
             self.handlers.append(plugin(config))
 
     def parse(self, mainmiml):
-        try:
-            with open(mainmiml, 'r') as miml:
-                self.master = yaml.load(miml)
-        except IOError as e:
-            logging.error("Error opening main MIML file: " + str(e))
-            raise
-        except yaml.YAMLError as e:
-            logging.error("YAML parsing error: " + str(e))
-            raise
+        with open(mainmiml, 'r') as miml:
+            self.master = yaml.load(miml)
 
         self.master['mainmiml'] = mainmiml
         self.master['framework'] = self.framework
