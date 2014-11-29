@@ -5,14 +5,14 @@
 test
 ----------------------------------
 
-Tests for all parts
+Tests for core framework
 '''
 
 import unittest
 from elderberry import codegen
 import yaml
 
-class TestCodeGen(unittest.TestCase):
+class TestSanity(unittest.TestCase):
     def setUp(self):
         pass
 
@@ -47,10 +47,6 @@ class TestBrokenFiles(unittest.TestCase):
         with self.assertRaises(yaml.YAMLError):
             p.parse('tests/data/broken.miml')
 
-
-
-class TestExpander(unittest.TestCase):
-    pass
 
 if __name__ == '__main__':
     unittest.main()

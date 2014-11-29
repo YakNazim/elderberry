@@ -1,5 +1,6 @@
 import string
 import random
+import re
 import yaml
 from os import path
 import pycparser
@@ -28,12 +29,12 @@ class MimlCollector(c_ast.NodeVisitor):
 
     def visit_Decl(self, node):
         for n in node.funcspec:
-            if not isinstance(n, AttributeSpecifier):
+            if not isinstance(n, AttributeSpecifier): #func has attr
                 continue
             expr = n.exprlist.exprs[0]
-            if not isinstance(expr, c_ast.FuncCall):
+            if not isinstance(expr, c_ast.FuncCall): #attr is func style
                 continue
-            if expr.name.name != 'miml':
+            if expr.name.name != 'miml': #attr func call is miml
                 continue
 
             self.miml_funcs.append({
@@ -67,7 +68,12 @@ class Expand:
         for header in tree['headers']:
             pathname = self.findpath(header)
             fullpath = path.join(pathname, header)
-            ast = pycparser.parse_file(fullpath, use_cpp=True, cpp_args=self.cpp_args, parser=GnuCParser())
+            ast = pycparser.parse_file(
+                fullpath,
+                use_cpp=True,
+                cpp_args=self.cpp_args,
+                parser=GnuCParser()
+            )
             parsed = MimlCollector()
             parsed.visit(ast)
 
@@ -99,16 +105,29 @@ class Expand:
     def initfinal(self, module, func):
         # TODO: warn if init arg types are not right. Once I figure out what they are.
         if func['type'] != ['void']:
-            raise ExpandError('Miml {} {} has incorrect return type ({})'.format(func['miml'], func['name'], func['type']))
+            raise ExpandError(
+                'Miml {} {} has incorrect return type ({})'
+                .format(func['miml'], func['name'], func['type'])
+            )
         if func['miml'] == 'final' and list(func['args']) != [['void']]:
-            raise ExpandError('Miml final function {} in {} has non-void arguments'.format(func['name'], func['file']))
+            raise ExpandError(
+                'Miml final function {} in {} has non-void arguments'
+                .format(func['name'], func['file'])
+            )
         if func['miml'] in module:
-            raise ExpandError('More than one miml {} specified for {}'.format(func['miml'], func['file']))
+            raise ExpandError(
+                'More than one miml {} specified for {}'
+                .format(func['miml'], func['file'])
+            )
+
         module[func['miml']] = func['name']
 
     def sendreceive(self, module, func):
         if func['type'] != ['void']:
-           raise ExpandError('Miml {} {} has incorrect return type ({})'.format(func['miml'], func['name'], func['type']))
+            raise ExpandError(
+                'Miml {} {} has incorrect return type ({})'
+                .format(func['miml'], func['name'], func['type']))
+
         argnames = []
         for arg in func['args']:
             if len(arg) == 2:
@@ -123,19 +142,19 @@ class Expand:
 
     @staticmethod
     def uniqueArgName(arguments):
-    #Cantor's diagonalization. If our desired arg name is in the list of
-    #provided arguments, then construct a unique random string not in the
-    #list of arguments
-        if '_arg' in arguments:
-            unique = ''
-            for i, arg in enumerate(arguments):
-                try:
-                    char = arg[i]
-                except IndexError:
-                    char = ''
-                unique += random.choice(string.ascii_letters.replace(char, ''))
-            return unique
-        else:
-            return '_arg'
+        #Cantor's diagonalization. If our desired arg name is in the list of
+        #provided arguments, then construct a unique random string not in the
+        #list of arguments
+        for arg in arguments:
+            if re.match('^_arg\d+', arg):
+                unique = ''
+                for i, arg in enumerate(arguments):
+                    try:
+                        char = arg[i]
+                    except IndexError:
+                        char = ''
+                    unique += random.choice(string.ascii_letters.replace(char, ''))
+                return unique
+        return '_arg'
 
 
